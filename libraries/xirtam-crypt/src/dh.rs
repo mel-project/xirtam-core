@@ -1,0 +1,129 @@
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::base64::Base64;
+use serde_with::{Bytes, IfIsHumanReadable, serde_as};
+
+/// X25519 public key used for Diffie-Hellman key exchange.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DhPublic(x25519_dalek::PublicKey);
+
+/// X25519 static secret key used for Diffie-Hellman key exchange.
+#[derive(Clone)]
+pub struct DhSecret(x25519_dalek::StaticSecret);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+struct DhPublicSerde(#[serde_as(as = "IfIsHumanReadable<Base64, Bytes>")] [u8; 32]);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+struct DhSecretSerde(#[serde_as(as = "IfIsHumanReadable<Base64, Bytes>")] [u8; 32]);
+
+impl DhPublic {
+    /// Build a public key from its 32-byte compressed form.
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(x25519_dalek::PublicKey::from(bytes))
+    }
+
+    /// Serialize the public key as 32 bytes.
+    pub fn to_bytes(&self) -> [u8; 32] {
+        self.0.to_bytes()
+    }
+
+    pub(crate) fn as_inner(&self) -> &x25519_dalek::PublicKey {
+        &self.0
+    }
+}
+
+impl Serialize for DhPublic {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        DhPublicSerde(self.to_bytes()).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DhPublic {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let DhPublicSerde(bytes) = DhPublicSerde::deserialize(deserializer)?;
+        Ok(DhPublic::from_bytes(bytes))
+    }
+}
+
+impl DhSecret {
+    /// Generate a random DH secret.
+    pub fn random() -> Self {
+        let mut rng = rand::thread_rng();
+        Self(x25519_dalek::StaticSecret::random_from_rng(&mut rng))
+    }
+
+    /// Build a DH secret from 32 raw bytes.
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(x25519_dalek::StaticSecret::from(bytes))
+    }
+
+    /// Serialize the DH secret as 32 bytes.
+    pub fn to_bytes(&self) -> [u8; 32] {
+        self.0.to_bytes()
+    }
+
+    /// Derive the matching public key for this secret.
+    pub fn public_key(&self) -> DhPublic {
+        DhPublic(x25519_dalek::PublicKey::from(&self.0))
+    }
+
+    /// Perform Diffie-Hellman with a peer public key, returning the shared secret bytes.
+    pub fn diffie_hellman(&self, peer: &DhPublic) -> [u8; 32] {
+        self.0.diffie_hellman(peer.as_inner()).to_bytes()
+    }
+}
+
+impl Serialize for DhSecret {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        DhSecretSerde(self.to_bytes()).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DhSecret {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let DhSecretSerde(bytes) = DhSecretSerde::deserialize(deserializer)?;
+        Ok(DhSecret::from_bytes(bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DhPublic, DhSecret};
+
+    #[test]
+    fn serde_json_round_trip_and_printing() {
+        let secret = DhSecret::from_bytes([7u8; 32]);
+        let public = secret.public_key();
+
+        let secret_json = serde_json::to_string(&secret).expect("secret to json");
+        let public_json = serde_json::to_string(&public).expect("public to json");
+
+        let secret_val: serde_json::Value =
+            serde_json::from_str(&secret_json).expect("secret json value");
+        let public_val: serde_json::Value =
+            serde_json::from_str(&public_json).expect("public json value");
+        eprintln!("{:?}", secret_val);
+        assert!(secret_val.is_string());
+        assert!(public_val.is_string());
+
+        let secret_back: DhSecret = serde_json::from_str(&secret_json).expect("secret from json");
+        let public_back: DhPublic = serde_json::from_str(&public_json).expect("public from json");
+
+        assert_eq!(secret.to_bytes(), secret_back.to_bytes());
+        assert_eq!(public.to_bytes(), public_back.to_bytes());
+    }
+}

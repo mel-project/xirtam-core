@@ -1,0 +1,153 @@
+use core::convert::TryFrom;
+
+use ed25519_consensus::{Signature, SigningKey, VerificationKey};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::base64::Base64;
+use serde_with::{serde_as, Bytes, IfIsHumanReadable};
+use thiserror::Error;
+
+/// Ed25519 public key used for signing verification.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SigningPublic(VerificationKey);
+
+/// Ed25519 signing key used to produce signatures.
+#[derive(Clone)]
+pub struct SigningSecret(SigningKey);
+
+/// Errors returned by signing operations.
+#[derive(Debug, Error)]
+pub enum SigningError {
+    #[error("invalid public key bytes")]
+    InvalidPublicKey,
+    #[error("signature verification failed")]
+    InvalidSignature,
+}
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+struct SigningPublicSerde(#[serde_as(as = "IfIsHumanReadable<Base64, Bytes>")] [u8; 32]);
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+struct SigningSecretSerde(#[serde_as(as = "IfIsHumanReadable<Base64, Bytes>")] [u8; 32]);
+
+impl SigningPublic {
+    /// Build a public key from its 32-byte compressed form.
+    pub fn from_bytes(bytes: [u8; 32]) -> Result<Self, SigningError> {
+        VerificationKey::try_from(bytes)
+            .map(Self)
+            .map_err(|_| SigningError::InvalidPublicKey)
+    }
+
+    /// Serialize the public key as 32 bytes.
+    pub fn to_bytes(&self) -> [u8; 32] {
+        self.0.to_bytes()
+    }
+
+    /// Verify a signature over `msg` using this public key.
+    pub fn verify(&self, signature: &[u8; 64], msg: &[u8]) -> Result<(), SigningError> {
+        let sig = Signature::from(*signature);
+        self.0
+            .verify(&sig, msg)
+            .map_err(|_| SigningError::InvalidSignature)
+    }
+
+}
+
+impl Serialize for SigningPublic {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        SigningPublicSerde(self.to_bytes()).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SigningPublic {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let SigningPublicSerde(bytes) = SigningPublicSerde::deserialize(deserializer)?;
+        SigningPublic::from_bytes(bytes).map_err(serde::de::Error::custom)
+    }
+}
+
+impl SigningSecret {
+    /// Generate a random signing secret.
+    pub fn random() -> Self {
+        Self(SigningKey::new(rand::thread_rng()))
+    }
+
+    /// Build a signing secret from 32 raw bytes.
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(SigningKey::from(bytes))
+    }
+
+    /// Serialize the signing secret as 32 bytes.
+    pub fn to_bytes(&self) -> [u8; 32] {
+        self.0.to_bytes()
+    }
+
+    /// Derive the matching public key for this secret.
+    pub fn public_key(&self) -> SigningPublic {
+        SigningPublic(self.0.verification_key())
+    }
+
+    /// Sign a message and return the 64-byte signature.
+    pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
+        self.0.sign(msg).to_bytes()
+    }
+}
+
+impl Serialize for SigningSecret {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        SigningSecretSerde(self.to_bytes()).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SigningSecret {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let SigningSecretSerde(bytes) = SigningSecretSerde::deserialize(deserializer)?;
+        Ok(SigningSecret::from_bytes(bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SigningPublic, SigningSecret};
+
+    #[test]
+    fn serde_json_round_trip_and_verify() {
+        let secret = SigningSecret::from_bytes([7u8; 32]);
+        let public = secret.public_key();
+        let msg = b"signing-round-trip";
+        let signature = secret.sign(msg);
+
+        let secret_json = serde_json::to_string(&secret).expect("secret to json");
+        let public_json = serde_json::to_string(&public).expect("public to json");
+
+        let secret_val: serde_json::Value =
+            serde_json::from_str(&secret_json).expect("secret json value");
+        let public_val: serde_json::Value =
+            serde_json::from_str(&public_json).expect("public json value");
+
+        assert!(secret_val.is_string());
+        assert!(public_val.is_string());
+
+        let secret_back: SigningSecret =
+            serde_json::from_str(&secret_json).expect("secret from json");
+        let public_back: SigningPublic =
+            serde_json::from_str(&public_json).expect("public from json");
+
+        assert_eq!(secret.to_bytes(), secret_back.to_bytes());
+        assert_eq!(public.to_bytes(), public_back.to_bytes());
+        public_back.verify(&signature, msg).expect("signature verify");
+    }
+}
