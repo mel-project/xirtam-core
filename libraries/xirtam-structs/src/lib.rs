@@ -1,5 +1,6 @@
 pub mod directory;
 pub mod envelope;
+mod timestamp;
 
 use bytes::Bytes;
 use derivative::Derivative;

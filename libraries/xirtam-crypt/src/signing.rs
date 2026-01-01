@@ -7,7 +7,7 @@ use serde_with::{Bytes, IfIsHumanReadable, serde_as};
 use thiserror::Error;
 
 /// Ed25519 public key used for signing verification.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SigningPublic(VerificationKey);
 
 /// Ed25519 signing key used to produce signatures.
