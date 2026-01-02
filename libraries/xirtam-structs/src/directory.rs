@@ -19,7 +19,12 @@ use crate::{Message, timestamp::Timestamp};
 pub trait DirectoryProtocol {
     async fn v1_get_pow_seed(&self) -> PowSeed;
     async fn v1_get_anchor(&self) -> Result<DirectoryAnchor, DirectoryErr>;
-    async fn v1_get_headers(&self, first: u64, last: u64) -> Result<DirectoryHeader, DirectoryErr>;
+    async fn v1_get_chunk(&self, height: u64) -> Result<DirectoryChunk, DirectoryErr>;
+    async fn v1_get_headers(
+        &self,
+        first: u64,
+        last: u64,
+    ) -> Result<Vec<DirectoryHeader>, DirectoryErr>;
     async fn v1_get_item(&self, key: String) -> Result<DirectoryResponse, DirectoryErr>;
     async fn v1_insert_update(
         &self,
@@ -55,7 +60,8 @@ pub enum PowAlgo {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct PowSolution {
     pub seed: Hash,
-    pub soln: Bytes,
+    pub nonce: u64,
+    pub solution: Bytes,
 }
 
 /// The trust anchor of the entire directory at a given time.
