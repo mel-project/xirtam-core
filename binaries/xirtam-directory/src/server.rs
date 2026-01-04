@@ -16,10 +16,7 @@ use xirtam_structs::directory::{
 };
 use xirtam_structs::timestamp::Timestamp;
 
-use crate::{
-    db, pow,
-    state::{DirectoryState, StagingChunk},
-};
+use crate::{db, pow, state::DirectoryState};
 
 #[derive(Clone)]
 pub struct DirectoryServer {
@@ -160,7 +157,7 @@ impl DirectoryProtocol for DirectoryServer {
             .await
             .map_err(map_db_err)?;
         let mut staging = self.state.staging.lock().await;
-        if let Some(pending) = staging.updates.get(&key) {
+        if let Some(pending) = staging.get(&key) {
             history.extend(pending.iter().cloned());
         }
         history.push(update.clone());
@@ -168,25 +165,21 @@ impl DirectoryProtocol for DirectoryServer {
             .iter()
             .verify_history()
             .map_err(|err| DirectoryErr::UpdateRejected(err.to_string()))?;
-        staging.updates.entry(key).or_default().push(update);
+        staging.entry(key).or_default().push(update);
         Ok(())
     }
 }
 
 pub async fn commit_chunk(state: Arc<DirectoryState>) -> anyhow::Result<()> {
-    let chunk = {
+    let updates = {
         let mut staging = state.staging.lock().await;
-        let chunk = StagingChunk {
-            height: staging.height,
-            updates: std::mem::take(&mut staging.updates),
-        };
-        staging.height += 1;
-        chunk
+        std::mem::take(&mut *staging)
     };
+    let (last_height, prev_hash) = db::load_last_header(&state.pool).await?;
+    let height = last_height + 1;
 
-    if !chunk.updates.is_empty() {
-        let (last_height, _) = db::load_last_header(&state.pool).await?;
-        for (key, list) in &chunk.updates {
+    if !updates.is_empty() {
+        for (key, list) in &updates {
             let mut history = db::load_updates_for_key(&state.pool, key, last_height).await?;
             history.extend(list.iter().cloned());
             history
@@ -196,12 +189,8 @@ pub async fn commit_chunk(state: Arc<DirectoryState>) -> anyhow::Result<()> {
         }
     }
 
-    let height = chunk.height;
-    let updates = &chunk.updates;
-
-    let prev_hash = db::load_last_header(&state.pool).await?.1;
     let mut tree = novasmt::Tree::empty(state.merkle.as_ref());
-    for (key, list) in updates {
+    for (key, list) in &updates {
         let key_hash = Hash::digest(key.as_bytes());
         let val = bcs::to_bytes(list)?;
         tree = tree.with(key_hash.to_bytes(), &val)?;
@@ -216,10 +205,7 @@ pub async fn commit_chunk(state: Arc<DirectoryState>) -> anyhow::Result<()> {
         time_unix: unix_time(),
     };
     let header_hash = Hash::digest(&bcs::to_bytes(&header)?);
-    let chunk = DirectoryChunk {
-        header,
-        updates: chunk.updates,
-    };
+    let chunk = DirectoryChunk { header, updates };
     db::insert_chunk(&state.pool, height, &chunk.header, &header_hash, &chunk).await?;
     tracing::debug!(height, update_count, "committed directory chunk");
     Ok(())
@@ -229,13 +215,14 @@ async fn build_proof(
     state: &DirectoryState,
     key: &str,
     root: Hash,
-) -> Result<Vec<Hash>, DirectoryErr> {
+) -> Result<Bytes, DirectoryErr> {
     let tree = novasmt::Tree::open(state.merkle.as_ref(), root.to_bytes());
     let key_hash = Hash::digest(key.as_bytes());
     let (_val, proof) = tree
         .get_with_proof(key_hash.to_bytes())
         .map_err(|_| DirectoryErr::RetryLater)?;
-    Ok(proof.0.into_iter().map(Hash::from_bytes).collect())
+    let compressed = proof.compress();
+    Ok(Bytes::from(compressed.0))
 }
 
 fn map_db_err(err: anyhow::Error) -> DirectoryErr {

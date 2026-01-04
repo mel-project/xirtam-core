@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use nanorpc::nanorpc_derive;
 use serde::{Deserialize, Serialize};
+use serde_with::{FromInto, IfIsHumanReadable, base64::Base64, serde_as};
 use smol_str::SmolStr;
 use thiserror::Error;
 use xirtam_crypt::{
@@ -219,9 +220,11 @@ where
 }
 
 /// A response to a directory query.
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DirectoryResponse {
     pub history: Vec<DirectoryUpdate>,
     pub proof_height: u64,
-    pub proof_merkle_branch: Vec<Hash>,
+    #[serde_as(as = "IfIsHumanReadable<Base64, FromInto<Vec<u8>>>")]
+    pub proof_merkle_branch: Bytes,
 }

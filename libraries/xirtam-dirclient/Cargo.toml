@@ -1,0 +1,24 @@
+[package]
+name = "xirtam-dirclient"
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = "1.0.100"
+bcs = "0.1.6"
+nanorpc = "0.1"
+novasmt = "0.3.0-alpha.3"
+sqlx = { version = "0.8.2", features = ["runtime-tokio", "sqlite", "macros"] }
+tracing = "0.1.44"
+xirtam-crypt = { path = "../xirtam-crypt" }
+xirtam-structs = { path = "../xirtam-structs" }
+
+[dev-dependencies]
+clap = { version = "4.5.53", features = ["derive"] }
+hex = "0.4.3"
+nanorpc-reqwest = { path = "../nanorpc-reqwest" }
+reqwest = { version = "0.12.23", features = ["json", "rustls-tls"] }
+tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }

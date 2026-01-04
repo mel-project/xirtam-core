@@ -19,7 +19,7 @@ use xirtam_crypt::signing::SigningSecret;
 
 use crate::{
     config::Args,
-    state::{DirectoryState, StagingChunk},
+    state::DirectoryState,
 };
 
 const DIRECTORY_ID: &str = "xirtam-directory";
@@ -43,15 +43,17 @@ async fn main() -> anyhow::Result<()> {
     let merkle = merkle_res?;
 
     let secret_key = load_secret_key(&args.secret_key)?;
+    let public_key = secret_key.public_key();
+    tracing::info!(
+        anchor_public_key = %hex::encode(public_key.to_bytes()),
+        "directory anchor public key"
+    );
     let state = Arc::new(DirectoryState {
         pool,
         merkle,
         secret_key,
         directory_id: DIRECTORY_ID.into(),
-        staging: tokio::sync::Mutex::new(StagingChunk {
-            height: 0,
-            updates: Default::default(),
-        }),
+        staging: tokio::sync::Mutex::new(Default::default()),
     });
 
     tokio::spawn(run_chunker(state.clone()));
