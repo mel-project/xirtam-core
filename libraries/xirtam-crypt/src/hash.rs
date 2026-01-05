@@ -31,3 +31,21 @@ impl Hash {
         self.0
     }
 }
+
+/// Extension trait for hashing any BCS-serializable value.
+pub trait BcsHashExt: Serialize {
+    /// Serialize with BCS and hash the resulting bytes.
+    ///
+    /// Panics if serialization fails.
+    fn bcs_hash(&self) -> Hash;
+}
+
+impl<T> BcsHashExt for T
+where
+    T: Serialize,
+{
+    fn bcs_hash(&self) -> Hash {
+        let bytes = bcs::to_bytes(self).expect("bcs serialization failed");
+        Hash::digest(&bytes)
+    }
+}

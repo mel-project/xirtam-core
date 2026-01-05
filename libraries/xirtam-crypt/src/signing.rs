@@ -19,6 +19,29 @@ pub struct SigningSecret(SigningKey);
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub struct Signature(#[serde_as(as = "IfIsHumanReadable<Base64, Bytes>")] [u8; 64]);
 
+/// Types that carry a signature over a serialized payload.
+pub trait Signable {
+    /// Return the bytes that are signed.
+    fn signed_value(&self) -> Vec<u8>;
+
+    /// Mutable access to the signature field.
+    fn signature_mut(&mut self) -> &mut Signature;
+
+    /// Shared access to the signature field.
+    fn signature(&self) -> &Signature;
+
+    /// Sign this value with the provided secret key.
+    fn sign(&mut self, signer: &SigningSecret) {
+        let sig = signer.sign(&self.signed_value());
+        *self.signature_mut() = sig;
+    }
+
+    /// Verify this value against the provided public key.
+    fn verify(&self, signer: SigningPublic) -> Result<(), SigningError> {
+        signer.verify(self.signature(), &self.signed_value())
+    }
+}
+
 /// Errors returned by signing operations.
 #[derive(Debug, Error)]
 pub enum SigningError {

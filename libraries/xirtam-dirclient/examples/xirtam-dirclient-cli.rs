@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let transport = ReqwestTransport::new(reqwest::Client::new(), args.endpoint);
     let client = DirClient::new(transport, anchor_pk, pool).await?;
 
-    let listing = client.query(args.key).await?;
+    let listing = client.query_raw(args.key).await?;
     println!("owners: {}", listing.owners.len());
     for owner in listing.owners {
         println!("owner: {}", hex::encode(owner.to_bytes()));

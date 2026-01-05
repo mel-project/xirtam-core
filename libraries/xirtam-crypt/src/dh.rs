@@ -1,10 +1,10 @@
+use crate::hash::Hash;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::base64::Base64;
 use serde_with::{Bytes, IfIsHumanReadable, serde_as};
-use crate::hash::Hash;
 
 /// X25519 public key used for Diffie-Hellman key exchange.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct DhPublic(x25519_dalek::PublicKey);
 
 /// X25519 static secret key used for Diffie-Hellman key exchange.
@@ -137,8 +137,8 @@ impl<'de> Deserialize<'de> for DhSecret {
 
 #[cfg(test)]
 mod tests {
-    use super::{DhPublic, DhSecret};
     use super::triple_dh;
+    use super::{DhPublic, DhSecret};
 
     #[test]
     fn serde_json_round_trip_and_printing() {

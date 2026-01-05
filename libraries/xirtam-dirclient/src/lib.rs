@@ -1,6 +1,8 @@
+#![doc = include_str!(concat!(env!("OUT_DIR"), "/README-rustdocified.md"))]
+
 use nanorpc::{DynRpcTransport, RpcTransport};
 use sqlx::SqlitePool;
-use xirtam_crypt::{hash::Hash, signing::SigningPublic};
+use xirtam_crypt::{hash::Hash, signing::{Signable, SigningPublic}};
 use xirtam_structs::Message;
 use xirtam_structs::directory::{
     DirectoryClient, DirectoryHistoryIterExt, DirectoryResponse, DirectoryUpdate,
@@ -8,19 +10,24 @@ use xirtam_structs::directory::{
 };
 mod header_sync;
 
+/// High-level directory client with local header storage and proof checks.
 pub struct DirClient {
     raw: DirectoryClient<DynRpcTransport>,
     anchor_pk: SigningPublic,
     pool: SqlitePool,
 }
 
+/// Derived listing information for a directory key.
 #[derive(Clone, Debug)]
 pub struct DirectoryListing {
+    /// Latest content message for the key, if present.
     pub latest: Option<Message>,
+    /// Current owners for the key, after applying ownership updates in order.
     pub owners: Vec<SigningPublic>,
 }
 
 impl DirClient {
+    /// Create a new client and ensure the local header schema is initialized.
     pub async fn new<T>(
         transport: T,
         anchor_pk: SigningPublic,
@@ -38,11 +45,16 @@ impl DirClient {
         })
     }
 
+    /// Access the raw RPC client when direct protocol calls are needed.
     pub fn raw(&self) -> &DirectoryClient<DynRpcTransport> {
         &self.raw
     }
 
-    pub async fn query(&self, key: impl Into<String>) -> anyhow::Result<DirectoryListing> {
+    /// Fetch and verify a directory entry by key.
+    ///
+    /// This validates the signed anchor, syncs headers, checks the SMT proof,
+    /// and returns a derived listing.
+    pub async fn query_raw(&self, key: impl Into<String>) -> anyhow::Result<DirectoryListing> {
         let key = key.into();
         let anchor = self
             .raw
@@ -61,6 +73,7 @@ impl DirClient {
         Ok(listing)
     }
 
+    /// Submit a raw directory update for a key.
     pub async fn insert_raw(
         &self,
         key: impl Into<String>,
@@ -74,6 +87,7 @@ impl DirClient {
         Ok(())
     }
 
+    /// Report local header sync progress as `(stored_height, anchor_height)`.
     pub async fn sync_progress(&self) -> anyhow::Result<(u64, u64)> {
         let stored = header_sync::max_stored_height(&self.pool)
             .await?

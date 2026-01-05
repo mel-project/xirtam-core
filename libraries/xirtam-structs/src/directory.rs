@@ -9,7 +9,7 @@ use smol_str::SmolStr;
 use thiserror::Error;
 use xirtam_crypt::{
     hash::Hash,
-    signing::{Signature, SigningError, SigningPublic, SigningSecret},
+    signing::{Signable, Signature, SigningPublic},
 };
 
 use crate::{Message, timestamp::Timestamp};
@@ -75,21 +75,12 @@ pub struct DirectoryAnchor {
 }
 
 impl DirectoryAnchor {
-    pub fn verify(&self, anchor_pk: SigningPublic) -> Result<(), SigningError> {
-        anchor_pk.verify(&self.signature, &self.to_sign())
-    }
-
-    pub fn sign(&mut self, anchor_sk: &SigningSecret) {
-        self.signature = anchor_sk.sign(&self.to_sign());
-    }
-
-    fn to_sign(&self) -> Vec<u8> {
-        bcs::to_bytes(&(
+    fn signed_tuple(&self) -> (&SmolStr, &u64, &Hash) {
+        (
             &self.directory_id,
             &self.last_header_height,
             &self.last_header_hash,
-        ))
-        .unwrap()
+        )
     }
 }
 
@@ -118,20 +109,37 @@ pub struct DirectoryUpdate {
 }
 
 impl DirectoryUpdate {
-    pub fn verify(&self, signer_pk: SigningPublic) -> Result<(), SigningError> {
-        signer_pk.verify(&self.signature, &self.to_sign())
-    }
-
-    pub fn sign(&mut self, signer_sk: &SigningSecret) {
-        self.signature = signer_sk.sign(&self.to_sign());
-    }
-
-    fn to_sign(&self) -> Vec<u8> {
-        bcs::to_bytes(&(&self.prev_update_hash, &self.update_type, &self.content)).unwrap()
-    }
-
     fn hash(&self) -> Hash {
         Hash::digest(&bcs::to_bytes(self).unwrap())
+    }
+}
+
+impl Signable for DirectoryAnchor {
+    fn signed_value(&self) -> Vec<u8> {
+        bcs::to_bytes(&self.signed_tuple()).expect("bcs serialization failed")
+    }
+
+    fn signature_mut(&mut self) -> &mut Signature {
+        &mut self.signature
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+}
+
+impl Signable for DirectoryUpdate {
+    fn signed_value(&self) -> Vec<u8> {
+        bcs::to_bytes(&(&self.prev_update_hash, &self.update_type, &self.content))
+            .expect("bcs serialization failed")
+    }
+
+    fn signature_mut(&mut self) -> &mut Signature {
+        &mut self.signature
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
     }
 }
 

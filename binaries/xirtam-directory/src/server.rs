@@ -8,7 +8,7 @@ use axum::{
 use bytes::Bytes;
 use nanorpc::{JrpcRequest, RpcService};
 use serde_json::json;
-use xirtam_crypt::hash::Hash;
+use xirtam_crypt::{hash::Hash, signing::Signable};
 use xirtam_structs::directory::{
     DirectoryAnchor, DirectoryChunk, DirectoryErr, DirectoryHeader, DirectoryHistoryIterExt,
     DirectoryProtocol, DirectoryResponse, DirectoryService, DirectoryUpdate, PowAlgo, PowSeed,

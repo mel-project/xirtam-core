@@ -1,3 +1,4 @@
+pub mod certificate;
 pub mod directory;
 pub mod envelope;
 pub mod timestamp;

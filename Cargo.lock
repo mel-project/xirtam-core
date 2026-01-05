@@ -4463,6 +4463,7 @@ dependencies = [
 name = "xirtam-crypt"
 version = "0.0.1"
 dependencies = [
+ "bcs",
  "blake3",
  "chacha20poly1305",
  "ed25519-consensus",
@@ -4486,6 +4487,7 @@ dependencies = [
  "nanorpc",
  "nanorpc-reqwest",
  "novasmt",
+ "readme-rustdocifier",
  "reqwest",
  "sqlx",
  "tokio",
