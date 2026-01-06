@@ -5,7 +5,7 @@ use xirtam_crypt::hash::Hash;
 use xirtam_structs::directory::{DirectoryErr, PowAlgo, PowSeed, PowSolution};
 use xirtam_structs::timestamp::Timestamp;
 
-pub const POW_EFFORT: u64 = 1_000_000;
+pub const POW_EFFORT: u64 = 1_000;
 pub const SEED_TTL_SECS: u64 = 120;
 
 pub fn new_seed() -> PowSeed {

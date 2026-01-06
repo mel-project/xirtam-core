@@ -103,8 +103,7 @@ pub struct DirectoryChunk {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DirectoryUpdate {
     pub prev_update_hash: Hash,
-    pub update_type: DirectoryUpdateType,
-    pub content: Message,
+    pub update_type: DirectoryUpdateInner,
     pub signature: Signature,
 }
 
@@ -130,7 +129,7 @@ impl Signable for DirectoryAnchor {
 
 impl Signable for DirectoryUpdate {
     fn signed_value(&self) -> Vec<u8> {
-        bcs::to_bytes(&(&self.prev_update_hash, &self.update_type, &self.content))
+        bcs::to_bytes(&(&self.prev_update_hash, &self.update_type))
             .expect("bcs serialization failed")
     }
 
@@ -143,11 +142,11 @@ impl Signable for DirectoryUpdate {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
-pub enum DirectoryUpdateType {
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum DirectoryUpdateInner {
     AddOwner(SigningPublic),
     DelOwner(SigningPublic),
-    Update,
+    Update(Message),
 }
 
 #[derive(Error, Serialize, Deserialize, Debug)]
@@ -188,9 +187,9 @@ where
             };
 
             let (is_valid, can_verify) = if owners.is_empty() {
-                match update.update_type {
-                    DirectoryUpdateType::AddOwner(owner_pk) => {
-                        (update.verify(owner_pk).is_ok(), true)
+                match &update.update_type {
+                    DirectoryUpdateInner::AddOwner(owner_pk) => {
+                        (update.verify(*owner_pk).is_ok(), true)
                     }
                     _ => (false, false),
                 }
@@ -209,16 +208,16 @@ where
                 });
             }
 
-            match update.update_type {
-                DirectoryUpdateType::AddOwner(owner_pk) => {
-                    if !owners.contains(&owner_pk) {
-                        owners.push(owner_pk);
+            match &update.update_type {
+                DirectoryUpdateInner::AddOwner(owner_pk) => {
+                    if !owners.contains(owner_pk) {
+                        owners.push(*owner_pk);
                     }
                 }
-                DirectoryUpdateType::DelOwner(owner_pk) => {
-                    owners.retain(|existing| *existing != owner_pk);
+                DirectoryUpdateInner::DelOwner(owner_pk) => {
+                    owners.retain(|existing| existing != owner_pk);
                 }
-                DirectoryUpdateType::Update => {}
+                DirectoryUpdateInner::Update(_) => {}
             }
 
             prev_hash = Some(update.hash());

@@ -1,11 +1,17 @@
+use std::fmt;
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use serde_with::hex::Hex;
 use serde_with::{Bytes, IfIsHumanReadable, serde_as};
 
 /// BLAKE3 hash output.
 #[serde_as]
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Hash(#[serde_as(as = "IfIsHumanReadable<Hex, Bytes>")] [u8; 32]);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HashParseError;
 
 impl Hash {
     /// Hash a message with BLAKE3.
@@ -31,6 +37,40 @@ impl Hash {
         self.0
     }
 }
+
+impl fmt::Display for Hash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", hex::encode(self.0))
+    }
+}
+
+impl fmt::Debug for Hash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", hex::encode(self.0))
+    }
+}
+
+impl FromStr for Hash {
+    type Err = HashParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = hex::decode(s).map_err(|_| HashParseError)?;
+        if bytes.len() != 32 {
+            return Err(HashParseError);
+        }
+        let mut buf = [0u8; 32];
+        buf.copy_from_slice(&bytes);
+        Ok(Self::from_bytes(buf))
+    }
+}
+
+impl fmt::Display for HashParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid hash")
+    }
+}
+
+impl std::error::Error for HashParseError {}
 
 /// Extension trait for hashing any BCS-serializable value.
 pub trait BcsHashExt: Serialize {

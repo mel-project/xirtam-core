@@ -10,12 +10,7 @@ CREATE TABLE IF NOT EXISTS headers (
     header_hash BLOB NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS updates (
-    height INTEGER NOT NULL,
-    key_str TEXT NOT NULL,
-    idx INTEGER NOT NULL,
-    update_blob BLOB NOT NULL,
-    PRIMARY KEY (height, key_str, idx)
+CREATE TABLE IF NOT EXISTS chunks (
+    height INTEGER PRIMARY KEY,
+    chunk_blob BLOB NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS updates_by_key ON updates (key_str, height, idx);

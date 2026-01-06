@@ -71,9 +71,13 @@ impl DirectoryProtocol for DirectoryServer {
     }
 
     async fn v1_get_anchor(&self) -> Result<DirectoryAnchor, DirectoryErr> {
-        let (height, hash) = db::load_last_header(&self.state.pool)
+        let (height, header) = db::load_last_header(&self.state.pool)
             .await
-            .map_err(map_db_err)?;
+            .map_err(map_db_err)?
+            .ok_or(DirectoryErr::RetryLater)?;
+        let header_bytes =
+            bcs::to_bytes(&header).map_err(|err| map_db_err(anyhow::anyhow!(err)))?;
+        let hash = Hash::digest(&header_bytes);
         let mut anchor = DirectoryAnchor {
             directory_id: self.state.directory_id.clone(),
             last_header_height: height,
@@ -102,20 +106,11 @@ impl DirectoryProtocol for DirectoryServer {
     }
 
     async fn v1_get_item(&self, key: String) -> Result<DirectoryResponse, DirectoryErr> {
-        let (height, _) = db::load_last_header(&self.state.pool)
-            .await
-            .map_err(map_db_err)?;
-        let history = db::load_updates_for_key(&self.state.pool, &key, height)
-            .await
-            .map_err(map_db_err)?;
-        let root = match db::load_header(&self.state.pool, height)
+        let (height, header) = db::load_last_header(&self.state.pool)
             .await
             .map_err(map_db_err)?
-        {
-            Some(header) => header.smt_root,
-            None => Hash::from_bytes([0u8; 32]),
-        };
-        let proof = build_proof(&self.state, &key, root).await?;
+            .ok_or(DirectoryErr::RetryLater)?;
+        let (history, proof) = build_history_and_proof(&self.state, &key, header.smt_root).await?;
         Ok(DirectoryResponse {
             history,
             proof_height: height,
@@ -149,13 +144,11 @@ impl DirectoryProtocol for DirectoryServer {
         };
         pow::validate_solution(&seed, effort, &pow_solution)?;
 
-        let last_height = db::load_last_header(&self.state.pool)
+        let (_last_height, header) = db::load_last_header(&self.state.pool)
             .await
             .map_err(map_db_err)?
-            .0;
-        let mut history = db::load_updates_for_key(&self.state.pool, &key, last_height)
-            .await
-            .map_err(map_db_err)?;
+            .ok_or(DirectoryErr::RetryLater)?;
+        let mut history = load_history_from_smt(&self.state, header.smt_root, &key).await?;
         let mut staging = self.state.staging.lock().await;
         if let Some(pending) = staging.get(&key) {
             history.extend(pending.iter().cloned());
@@ -175,12 +168,22 @@ pub async fn commit_chunk(state: Arc<DirectoryState>) -> anyhow::Result<()> {
         let mut staging = state.staging.lock().await;
         std::mem::take(&mut *staging)
     };
-    let (last_height, prev_hash) = db::load_last_header(&state.pool).await?;
-    let height = last_height + 1;
+    let (height, prev_hash, last_header) = match db::load_last_header(&state.pool).await? {
+        Some((last_height, header)) => {
+            let prev_hash = Hash::digest(&bcs::to_bytes(&header)?);
+            (last_height + 1, prev_hash, Some((last_height, header)))
+        }
+        None => (0, Hash::from_bytes([0u8; 32]), None),
+    };
 
     if !updates.is_empty() {
         for (key, list) in &updates {
-            let mut history = db::load_updates_for_key(&state.pool, key, last_height).await?;
+            let mut history = match last_header {
+                Some((_last_height, header)) => {
+                    load_history_from_smt(&state, header.smt_root, key).await?
+                }
+                None => Vec::new(),
+            };
             history.extend(list.iter().cloned());
             history
                 .iter()
@@ -189,10 +192,22 @@ pub async fn commit_chunk(state: Arc<DirectoryState>) -> anyhow::Result<()> {
         }
     }
 
-    let mut tree = novasmt::Tree::empty(state.merkle.as_ref());
+    let mut tree = match last_header {
+        Some((_last_height, header)) => {
+            novasmt::Tree::open(state.merkle.as_ref(), header.smt_root.to_bytes())
+        }
+        None => novasmt::Tree::empty(state.merkle.as_ref()),
+    };
     for (key, list) in &updates {
+        let mut history = match last_header {
+            Some((_last_height, header)) => {
+                load_history_from_smt(&state, header.smt_root, key).await?
+            }
+            None => Vec::new(),
+        };
+        history.extend(list.iter().cloned());
         let key_hash = Hash::digest(key.as_bytes());
-        let val = bcs::to_bytes(list)?;
+        let val = bcs::to_bytes(&history)?;
         tree = tree.with(key_hash.to_bytes(), &val)?;
     }
     let smt_root = tree.commit()?;
@@ -207,22 +222,49 @@ pub async fn commit_chunk(state: Arc<DirectoryState>) -> anyhow::Result<()> {
     let header_hash = Hash::digest(&bcs::to_bytes(&header)?);
     let chunk = DirectoryChunk { header, updates };
     db::insert_chunk(&state.pool, height, &chunk.header, &header_hash, &chunk).await?;
-    tracing::debug!(height, update_count, "committed directory chunk");
+    tracing::debug!(
+        height,
+        update_count,
+        header = debug(&header),
+        "committed directory chunk"
+    );
     Ok(())
 }
 
-async fn build_proof(
+async fn build_history_and_proof(
     state: &DirectoryState,
     key: &str,
     root: Hash,
-) -> Result<Bytes, DirectoryErr> {
+) -> Result<(Vec<DirectoryUpdate>, Bytes), DirectoryErr> {
     let tree = novasmt::Tree::open(state.merkle.as_ref(), root.to_bytes());
     let key_hash = Hash::digest(key.as_bytes());
-    let (_val, proof) = tree
+    let (val, proof) = tree
         .get_with_proof(key_hash.to_bytes())
         .map_err(|_| DirectoryErr::RetryLater)?;
     let compressed = proof.compress();
-    Ok(Bytes::from(compressed.0))
+    let history = if val.is_empty() {
+        Vec::new()
+    } else {
+        bcs::from_bytes(&val).map_err(|_| DirectoryErr::RetryLater)?
+    };
+    Ok((history, Bytes::from(compressed.0)))
+}
+
+async fn load_history_from_smt(
+    state: &DirectoryState,
+    root: Hash,
+    key: &str,
+) -> Result<Vec<DirectoryUpdate>, DirectoryErr> {
+    let tree = novasmt::Tree::open(state.merkle.as_ref(), root.to_bytes());
+    let key_hash = Hash::digest(key.as_bytes());
+    let val = tree
+        .get(key_hash.to_bytes())
+        .map_err(|_| DirectoryErr::RetryLater)?;
+    if val.is_empty() {
+        Ok(Vec::new())
+    } else {
+        bcs::from_bytes(&val).map_err(|_| DirectoryErr::RetryLater)
+    }
 }
 
 fn map_db_err(err: anyhow::Error) -> DirectoryErr {

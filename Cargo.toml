@@ -11,7 +11,7 @@ edition = "2024"
 
 
 [patch.crates-io]
-# ipstack-geph = { path = "../ipstack-geph" }
+novasmt = { path = "../novasmt" }
 
 
 [profile.release]

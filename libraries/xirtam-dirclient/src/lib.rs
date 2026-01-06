@@ -2,13 +2,17 @@
 
 use nanorpc::{DynRpcTransport, RpcTransport};
 use sqlx::SqlitePool;
-use xirtam_crypt::{hash::Hash, signing::{Signable, SigningPublic}};
-use xirtam_structs::Message;
+use xirtam_crypt::{
+    hash::Hash,
+    signing::{Signable, Signature, SigningPublic, SigningSecret},
+};
 use xirtam_structs::directory::{
     DirectoryClient, DirectoryHistoryIterExt, DirectoryResponse, DirectoryUpdate,
-    DirectoryUpdateType, PowSolution,
+    DirectoryUpdateInner, PowSolution,
 };
+use xirtam_structs::{Message, handle::Handle};
 mod header_sync;
+mod pow;
 
 /// High-level directory client with local header storage and proof checks.
 pub struct DirClient {
@@ -56,6 +60,102 @@ impl DirClient {
     /// and returns a derived listing.
     pub async fn query_raw(&self, key: impl Into<String>) -> anyhow::Result<DirectoryListing> {
         let key = key.into();
+        let response = self.fetch_verified_response(&key).await?;
+        let listing = build_listing(&response)?;
+        Ok(listing)
+    }
+
+    /// Fetch and decode the root certificate hash for a user handle.
+    pub async fn get_roothash(&self, handle: &Handle) -> anyhow::Result<Option<Hash>> {
+        let listing = self.query_raw(handle.as_str()).await?;
+        let latest = match listing.latest {
+            Some(latest) => latest,
+            None => return Ok(None),
+        };
+        if latest.kind != Message::V1_ROOT_CERT_HASH {
+            anyhow::bail!("unexpected message kind: {}", latest.kind);
+        }
+        if latest.inner.len() != 32 {
+            anyhow::bail!("invalid root cert hash length");
+        }
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&latest.inner);
+        Ok(Some(Hash::from_bytes(bytes)))
+    }
+
+    /// Build and submit a root certificate hash update for a user handle.
+    pub async fn insert_roothash(
+        &self,
+        handle: &Handle,
+        roothash: Hash,
+        signer: &SigningSecret,
+    ) -> anyhow::Result<()> {
+        let response = self.fetch_verified_response(handle.as_str()).await?;
+        response
+            .history
+            .iter()
+            .verify_history()
+            .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        let prev_update_hash = prev_update_hash(&response.history)?;
+        let update = signed_update(
+            prev_update_hash,
+            DirectoryUpdateInner::Update(Message {
+                kind: Message::V1_ROOT_CERT_HASH.into(),
+                inner: roothash.to_bytes().to_vec().into(),
+            }),
+            signer,
+        );
+        self.insert_raw(handle.as_str(), update).await?;
+        Ok(())
+    }
+
+    /// Add an owner to a user handle.
+    pub async fn add_owner(
+        &self,
+        handle: &Handle,
+        owner: SigningPublic,
+        signer: &SigningSecret,
+    ) -> anyhow::Result<()> {
+        let response = self.fetch_verified_response(handle.as_str()).await?;
+        response
+            .history
+            .iter()
+            .verify_history()
+            .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        let prev_update_hash = prev_update_hash(&response.history)?;
+        let update = signed_update(
+            prev_update_hash,
+            DirectoryUpdateInner::AddOwner(owner),
+            signer,
+        );
+        self.insert_raw(handle.as_str(), update).await?;
+        Ok(())
+    }
+
+    /// Remove an owner from a user handle.
+    pub async fn del_owner(
+        &self,
+        handle: &Handle,
+        owner: SigningPublic,
+        signer: &SigningSecret,
+    ) -> anyhow::Result<()> {
+        let response = self.fetch_verified_response(handle.as_str()).await?;
+        response
+            .history
+            .iter()
+            .verify_history()
+            .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        let prev_update_hash = prev_update_hash(&response.history)?;
+        let update = signed_update(
+            prev_update_hash,
+            DirectoryUpdateInner::DelOwner(owner),
+            signer,
+        );
+        self.insert_raw(handle.as_str(), update).await?;
+        Ok(())
+    }
+
+    async fn fetch_verified_response(&self, key: &str) -> anyhow::Result<DirectoryResponse> {
         let anchor = self
             .raw
             .v1_get_anchor()
@@ -65,12 +165,11 @@ impl DirClient {
         header_sync::sync_headers(&self.raw, &self.pool, &anchor).await?;
         let response = self
             .raw
-            .v1_get_item(key.clone())
+            .v1_get_item(key.to_string())
             .await?
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-        verify_response(&self.pool, &key, &anchor, &response).await?;
-        let listing = build_listing(&response)?;
-        Ok(listing)
+        verify_response(&self.pool, key, &anchor, &response).await?;
+        Ok(response)
     }
 
     /// Submit a raw directory update for a key.
@@ -78,8 +177,8 @@ impl DirClient {
         &self,
         key: impl Into<String>,
         update: DirectoryUpdate,
-        pow: PowSolution,
     ) -> anyhow::Result<()> {
+        let pow = self.solve_pow().await?;
         self.raw
             .v1_insert_update(key.into(), update, pow)
             .await?
@@ -99,6 +198,11 @@ impl DirClient {
             .map_err(|err| anyhow::anyhow!(err.to_string()))?
             .last_header_height;
         Ok((stored, anchor))
+    }
+
+    async fn solve_pow(&self) -> anyhow::Result<PowSolution> {
+        let seed = self.raw.v1_get_pow_seed().await?;
+        pow::solve_pow(&seed)
     }
 }
 
@@ -139,19 +243,45 @@ fn build_listing(response: &DirectoryResponse) -> anyhow::Result<DirectoryListin
     let mut owners = Vec::new();
     let mut latest = None;
     for update in &response.history {
-        match update.update_type {
-            DirectoryUpdateType::AddOwner(owner) => {
-                if !owners.contains(&owner) {
-                    owners.push(owner);
+        match &update.update_type {
+            DirectoryUpdateInner::AddOwner(owner) => {
+                if !owners.contains(owner) {
+                    owners.push(*owner);
                 }
             }
-            DirectoryUpdateType::DelOwner(owner) => {
-                owners.retain(|existing| *existing != owner);
+            DirectoryUpdateInner::DelOwner(owner) => {
+                owners.retain(|existing| existing != owner);
             }
-            DirectoryUpdateType::Update => {
-                latest = Some(update.content.clone());
+            DirectoryUpdateInner::Update(message) => {
+                latest = Some(message.clone());
             }
         }
     }
     Ok(DirectoryListing { latest, owners })
+}
+
+fn update_hash(update: &DirectoryUpdate) -> anyhow::Result<Hash> {
+    let bytes = bcs::to_bytes(update)?;
+    Ok(Hash::digest(&bytes))
+}
+
+fn prev_update_hash(history: &[DirectoryUpdate]) -> anyhow::Result<Hash> {
+    match history.last() {
+        Some(update) => update_hash(update),
+        None => Ok(Hash::from_bytes([0u8; 32])),
+    }
+}
+
+fn signed_update(
+    prev_update_hash: Hash,
+    update_type: DirectoryUpdateInner,
+    signer: &SigningSecret,
+) -> DirectoryUpdate {
+    let mut update = DirectoryUpdate {
+        prev_update_hash,
+        update_type,
+        signature: Signature::from_bytes([0u8; 64]),
+    };
+    update.sign(signer);
+    update
 }

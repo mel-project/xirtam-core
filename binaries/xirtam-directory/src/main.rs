@@ -17,13 +17,10 @@ use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 use xirtam_crypt::signing::SigningSecret;
 
-use crate::{
-    config::Args,
-    state::DirectoryState,
-};
+use crate::{config::Args, state::DirectoryState};
 
 const DIRECTORY_ID: &str = "xirtam-directory";
-const CHUNK_SECONDS: u64 = 1;
+const CHUNK_SECONDS: u64 = 30;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -45,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
     let secret_key = load_secret_key(&args.secret_key)?;
     let public_key = secret_key.public_key();
     tracing::info!(
-        anchor_public_key = %hex::encode(public_key.to_bytes()),
+        anchor_public_key = %public_key,
         "directory anchor public key"
     );
     let state = Arc::new(DirectoryState {

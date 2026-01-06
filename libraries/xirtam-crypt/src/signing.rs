@@ -1,5 +1,6 @@
 use core::convert::TryFrom;
 use std::fmt;
+use std::str::FromStr;
 
 use derivative::Derivative;
 use ed25519_consensus::{Signature as Ed25519Signature, SigningKey, VerificationKey};
@@ -7,6 +8,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::base64::Base64;
 use serde_with::{Bytes, IfIsHumanReadable, serde_as};
 use thiserror::Error;
+
+use crate::encoding;
+use crate::ParseKeyError;
 
 /// Ed25519 public key used for signing verification.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -84,6 +88,21 @@ impl SigningPublic {
     }
 }
 
+impl fmt::Display for SigningPublic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", encoding::encode_32_base64(self.to_bytes()))
+    }
+}
+
+impl FromStr for SigningPublic {
+    type Err = ParseKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = encoding::decode_32_base64(s)?;
+        SigningPublic::from_bytes(bytes).map_err(|_| ParseKeyError::InvalidPublicKey)
+    }
+}
+
 impl Serialize for SigningPublic {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -127,6 +146,21 @@ impl SigningSecret {
     /// Sign a message and return the signature.
     pub fn sign(&self, msg: &[u8]) -> Signature {
         Signature(self.0.sign(msg).to_bytes())
+    }
+}
+
+impl fmt::Display for SigningSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", encoding::encode_32_base64(self.to_bytes()))
+    }
+}
+
+impl FromStr for SigningSecret {
+    type Err = ParseKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = encoding::decode_32_base64(s)?;
+        Ok(SigningSecret::from_bytes(bytes))
     }
 }
 

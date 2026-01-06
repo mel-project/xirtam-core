@@ -2,5 +2,7 @@
 
 pub mod aead;
 pub mod dh;
+mod encoding;
 pub mod hash;
 pub mod signing;
+pub use encoding::ParseKeyError;

@@ -69,7 +69,10 @@ pub async fn sync_headers(
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
         let expected_len = (end - next + 1) as usize;
         if headers.len() != expected_len {
-            anyhow::bail!("header range incomplete");
+            anyhow::bail!(
+                "header range incomplete, got {} instead of {expected_len}",
+                headers.len()
+            );
         }
 
         let mut staged = Vec::with_capacity(headers.len());

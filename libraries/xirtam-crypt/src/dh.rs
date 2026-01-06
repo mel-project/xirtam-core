@@ -1,10 +1,14 @@
 use crate::hash::Hash;
 use std::fmt;
+use std::str::FromStr;
 
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::base64::Base64;
 use serde_with::{Bytes, IfIsHumanReadable, serde_as};
+
+use crate::encoding;
+use crate::ParseKeyError;
 
 /// X25519 public key used for Diffie-Hellman key exchange.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -36,6 +40,21 @@ impl DhPublic {
 
     pub(crate) fn as_inner(&self) -> &x25519_dalek::PublicKey {
         &self.0
+    }
+}
+
+impl fmt::Display for DhPublic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", encoding::encode_32_base64(self.to_bytes()))
+    }
+}
+
+impl FromStr for DhPublic {
+    type Err = ParseKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = encoding::decode_32_base64(s)?;
+        Ok(DhPublic::from_bytes(bytes))
     }
 }
 
@@ -83,6 +102,21 @@ impl DhSecret {
     /// Perform Diffie-Hellman with a peer public key, returning the shared secret bytes.
     pub fn diffie_hellman(&self, peer: &DhPublic) -> [u8; 32] {
         self.0.diffie_hellman(peer.as_inner()).to_bytes()
+    }
+}
+
+impl fmt::Display for DhSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", encoding::encode_32_base64(self.to_bytes()))
+    }
+}
+
+impl FromStr for DhSecret {
+    type Err = ParseKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = encoding::decode_32_base64(s)?;
+        Ok(DhSecret::from_bytes(bytes))
     }
 }
 
