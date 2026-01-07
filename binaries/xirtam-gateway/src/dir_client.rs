@@ -14,9 +14,12 @@ use crate::database::DATABASE;
 
 pub static DIR_CLIENT: LazyLock<DirClient> = LazyLock::new(|| {
     let transport = Transport::new(CONFIG.directory_url.clone());
-    tokio::runtime::Handle::current()
-        .block_on(DirClient::new(transport, CONFIG.directory_pk, DATABASE.clone()))
-        .expect("failed to initialize directory client")
+    pollster::block_on(DirClient::new(
+        transport,
+        CONFIG.directory_pk,
+        DATABASE.clone(),
+    ))
+    .expect("failed to initialize directory client")
 });
 
 pub async fn init_name() -> anyhow::Result<()> {
@@ -29,25 +32,28 @@ pub async fn init_name() -> anyhow::Result<()> {
 
     let client = &*DIR_CLIENT;
 
-    if let Some(existing) = client
-        .get_gateway_descriptor(&CONFIG.gateway_name)
-        .await?
-    {
+    if let Some(existing) = client.get_gateway_descriptor(&CONFIG.gateway_name).await? {
         if existing != descriptor {
             anyhow::bail!(
                 "gateway descriptor mismatch for {}",
                 CONFIG.gateway_name.as_str()
             );
         }
-        return Ok(());
+    } else {
+        tracing::info!("registering name step 1: adding gateway owner...");
+        client
+            .add_gateway_owner(&CONFIG.gateway_name, gateway_pk, &signing_sk)
+            .await?;
+        tracing::info!("registering name step 1: inserting gateway descriptor...");
+        client
+            .insert_gateway_descriptor(&CONFIG.gateway_name, &descriptor, &signing_sk)
+            .await?;
+        tracing::info!(
+            "registering name step 1: done! Registered {}",
+            CONFIG.gateway_name
+        );
     }
-
-    client
-        .add_gateway_owner(&CONFIG.gateway_name, gateway_pk, &signing_sk)
-        .await?;
-    client
-        .insert_gateway_descriptor(&CONFIG.gateway_name, &descriptor, &signing_sk)
-        .await?;
+    tracing::info!("Validated gateway name {}", CONFIG.gateway_name);
     Ok(())
 }
 

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
@@ -34,6 +35,12 @@ impl FromStr for Handle {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
+    }
+}
+
+impl fmt::Display for Handle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

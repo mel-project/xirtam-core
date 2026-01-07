@@ -2,6 +2,7 @@
 
 use nanorpc::{DynRpcTransport, RpcTransport};
 use sqlx::SqlitePool;
+use std::time::{Duration, Instant};
 use xirtam_crypt::{
     hash::Hash,
     signing::{Signable, Signature, SigningPublic, SigningSecret},
@@ -45,7 +46,15 @@ impl DirClient {
         T: RpcTransport,
         T::Error: Into<anyhow::Error>,
     {
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS _dirclient_headers (\
+            height INTEGER PRIMARY KEY,\
+            header BLOB NOT NULL,\
+            header_hash BLOB NOT NULL\
+            )",
+        )
+        .execute(&pool)
+        .await?;
         Ok(Self {
             raw: DirectoryClient::from(transport),
             anchor_pk,
@@ -202,6 +211,7 @@ impl DirClient {
         Ok(())
     }
 
+
     /// Remove an owner from a user handle.
     pub async fn del_owner(
         &self,
@@ -271,11 +281,14 @@ impl DirClient {
         key: impl Into<String>,
         update: DirectoryUpdate,
     ) -> anyhow::Result<()> {
+        let key = key.into();
+        let update_hash = update_hash(&update)?;
         let pow = self.solve_pow().await?;
         self.raw
-            .v1_insert_update(key.into(), update, pow)
+            .v1_insert_update(key.clone(), update, pow)
             .await?
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        self.wait_for_update(&key, update_hash).await?;
         Ok(())
     }
 
@@ -296,6 +309,24 @@ impl DirClient {
     async fn solve_pow(&self) -> anyhow::Result<PowSolution> {
         let seed = self.raw.v1_get_pow_seed().await?;
         pow::solve_pow(&seed)
+    }
+
+    async fn wait_for_update(&self, key: &str, expected_hash: Hash) -> anyhow::Result<()> {
+        let start = Instant::now();
+        let timeout = Duration::from_secs(90);
+        let poll = Duration::from_millis(500);
+        loop {
+            let response = self.fetch_verified_response(key).await?;
+            for update in &response.history {
+                if update_hash(update)? == expected_hash {
+                    return Ok(());
+                }
+            }
+            if start.elapsed() > timeout {
+                anyhow::bail!("update did not land before timeout");
+            }
+            tokio::time::sleep(poll).await;
+        }
     }
 }
 

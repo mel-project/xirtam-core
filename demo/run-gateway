@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIG_FILE="$ROOT/demo/gateway.toml"
+
+cd "$ROOT"
+
+exec cargo run -p xirtam-gateway -- --config "$CONFIG_FILE"

@@ -1,0 +1,7 @@
+listen = "0.0.0.0:7000"
+db_path = "demo/state/gateway.db"
+signing_sk = "demo/state/gateway-signing.key"
+gateway_name = "~demo01"
+public_urls = ["http://127.0.0.1:7000"]
+directory_url = "http://127.0.0.1:4000"
+directory_pk = "jsB+n5jnNmQhZlXxeCdBseGLm81cgeccWFePsXI/FFI="

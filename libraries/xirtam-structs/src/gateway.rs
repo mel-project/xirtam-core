@@ -1,5 +1,5 @@
 use std::sync::LazyLock;
-use std::{collections::BTreeMap, str::FromStr};
+use std::{collections::BTreeMap, fmt, str::FromStr};
 
 use async_trait::async_trait;
 use nanorpc::nanorpc_derive;
@@ -89,6 +89,12 @@ impl FromStr for GatewayName {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
+    }
+}
+
+impl fmt::Display for GatewayName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

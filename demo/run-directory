@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+LISTEN="0.0.0.0:4000"
+DB_DIR="$ROOT/demo/state/directory-db"
+SECRET_KEY="$ROOT/demo/state/directory-secret.key"
+
+cd "$ROOT"
+mkdir -p "$(dirname "$SECRET_KEY")" "$DB_DIR"
+
+exec cargo run -p xirtam-directory -- \
+  --listen "$LISTEN" \
+  --db-path "$DB_DIR" \
+  --secret-key "$SECRET_KEY"

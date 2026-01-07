@@ -7,7 +7,8 @@ use xirtam_structs::directory::{DirectoryAnchor, DirectoryClient, DirectoryHeade
 const BATCH_LIMIT: u64 = 10_000;
 
 pub async fn max_stored_height(pool: &SqlitePool) -> anyhow::Result<Option<u64>> {
-    let height = sqlx::query_scalar::<_, Option<i64>>("SELECT MAX(height) FROM dir_headers")
+    let height =
+        sqlx::query_scalar::<_, Option<i64>>("SELECT MAX(height) FROM _dirclient_headers")
         .fetch_one(pool)
         .await?
         .map(|s| s as u64);
@@ -15,7 +16,8 @@ pub async fn max_stored_height(pool: &SqlitePool) -> anyhow::Result<Option<u64>>
 }
 
 pub async fn load_header(pool: &SqlitePool, height: u64) -> anyhow::Result<DirectoryHeader> {
-    let data = sqlx::query_scalar::<_, Vec<u8>>("SELECT header FROM dir_headers WHERE height = ?")
+    let data =
+        sqlx::query_scalar::<_, Vec<u8>>("SELECT header FROM _dirclient_headers WHERE height = ?")
         .bind(height as i64)
         .fetch_optional(pool)
         .await?;
@@ -27,7 +29,9 @@ pub async fn load_header(pool: &SqlitePool, height: u64) -> anyhow::Result<Direc
 
 async fn load_header_hash(pool: &SqlitePool, height: u64) -> anyhow::Result<Option<Hash>> {
     let data =
-        sqlx::query_scalar::<_, Vec<u8>>("SELECT header_hash FROM dir_headers WHERE height = ?")
+        sqlx::query_scalar::<_, Vec<u8>>(
+            "SELECT header_hash FROM _dirclient_headers WHERE height = ?",
+        )
             .bind(height as i64)
             .fetch_optional(pool)
             .await?;
@@ -89,7 +93,7 @@ pub async fn sync_headers(
 
         for (height, data, hash) in staged {
             sqlx::query(
-                "INSERT OR REPLACE INTO dir_headers (height, header, header_hash) VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO _dirclient_headers (height, header, header_hash) VALUES (?, ?, ?)",
             )
             .bind(height as i64)
             .bind(data)
