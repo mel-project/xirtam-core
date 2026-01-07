@@ -6,11 +6,20 @@ use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use smol_str::SmolStr;
 use thiserror::Error;
+use xirtam_crypt::hash::Hash;
+
+use crate::gateway::GatewayName;
 
 /// A user handle that matches the rules for user handles.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct Handle(SmolStr);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandleDescriptor {
+    pub gateway_name: GatewayName,
+    pub root_cert_hash: Hash,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[error("invalid handle")]

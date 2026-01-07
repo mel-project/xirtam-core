@@ -22,7 +22,7 @@ pub trait GatewayProtocol {
         &self,
         handle: Handle,
         cert: CertificateChain,
-    ) -> Result<(), GatewayServerError>;
+    ) -> Result<AuthToken, GatewayServerError>;
 
     /// Retrieve the devices for a given handle.
     async fn v1_device_list(

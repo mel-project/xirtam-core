@@ -14,7 +14,7 @@ use xirtam_structs::directory::{
 use xirtam_structs::{
     Message,
     gateway::{GatewayDescriptor, GatewayName},
-    handle::Handle,
+    handle::{Handle, HandleDescriptor},
 };
 mod header_sync;
 mod pow;
@@ -78,22 +78,21 @@ impl DirClient {
         Ok(listing)
     }
 
-    /// Fetch and decode the root certificate hash for a user handle.
-    pub async fn get_roothash(&self, handle: &Handle) -> anyhow::Result<Option<Hash>> {
+    /// Fetch and decode the handle descriptor for a user handle.
+    pub async fn get_handle_descriptor(
+        &self,
+        handle: &Handle,
+    ) -> anyhow::Result<Option<HandleDescriptor>> {
         let listing = self.query_raw(handle.as_str()).await?;
         let latest = match listing.latest {
             Some(latest) => latest,
             None => return Ok(None),
         };
-        if latest.kind != Message::V1_ROOT_CERT_HASH {
+        if latest.kind != Message::V1_HANDLE_DESCRIPTOR {
             anyhow::bail!("unexpected message kind: {}", latest.kind);
         }
-        if latest.inner.len() != 32 {
-            anyhow::bail!("invalid root cert hash length");
-        }
-        let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(&latest.inner);
-        Ok(Some(Hash::from_bytes(bytes)))
+        let descriptor: HandleDescriptor = bcs::from_bytes(&latest.inner)?;
+        Ok(Some(descriptor))
     }
 
     /// Fetch and decode the gateway descriptor for a gateway name.
@@ -113,11 +112,11 @@ impl DirClient {
         Ok(Some(descriptor))
     }
 
-    /// Build and submit a root certificate hash update for a user handle.
-    pub async fn insert_roothash(
+    /// Build and submit a handle descriptor update for a user handle.
+    pub async fn insert_handle_descriptor(
         &self,
         handle: &Handle,
-        roothash: Hash,
+        descriptor: &HandleDescriptor,
         signer: &SigningSecret,
     ) -> anyhow::Result<()> {
         let response = self.fetch_verified_response(handle.as_str()).await?;
@@ -130,8 +129,8 @@ impl DirClient {
         let update = signed_update(
             prev_update_hash,
             DirectoryUpdateInner::Update(Message {
-                kind: Message::V1_ROOT_CERT_HASH.into(),
-                inner: roothash.to_bytes().to_vec().into(),
+                kind: Message::V1_HANDLE_DESCRIPTOR.into(),
+                inner: bcs::to_bytes(descriptor)?.into(),
             }),
             signer,
         );

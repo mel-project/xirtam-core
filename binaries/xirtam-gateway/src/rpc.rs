@@ -41,7 +41,7 @@ impl GatewayProtocol for GatewayServer {
         &self,
         handle: Handle,
         cert: CertificateChain,
-    ) -> Result<(), GatewayServerError> {
+    ) -> Result<AuthToken, GatewayServerError> {
         device::device_auth(handle, cert).await
     }
 

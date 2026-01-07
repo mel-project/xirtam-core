@@ -12,7 +12,8 @@ use xirtam_crypt::{
 };
 use xirtam_dirclient::DirClient;
 use xirtam_nanorpc::Transport;
-use xirtam_structs::handle::Handle;
+use xirtam_structs::gateway::GatewayName;
+use xirtam_structs::handle::{Handle, HandleDescriptor};
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -37,6 +38,8 @@ enum Command {
     Insert {
         #[arg(long)]
         handle: Handle,
+        #[arg(long)]
+        gateway_name: GatewayName,
         #[arg(long)]
         roothash: Hash,
         #[arg(long)]
@@ -83,19 +86,29 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Query { handle } => {
-            let roothash = client.get_roothash(&handle).await?;
-            match roothash {
-                Some(hash) => println!("{}", hash),
+            let descriptor = client.get_handle_descriptor(&handle).await?;
+            match descriptor {
+                Some(descriptor) => {
+                    println!(
+                        "{} {}",
+                        descriptor.gateway_name, descriptor.root_cert_hash
+                    );
+                }
                 None => println!("<none>"),
             }
         }
         Command::Insert {
             handle,
+            gateway_name,
             roothash,
             secret_key,
         } => {
+            let descriptor = HandleDescriptor {
+                gateway_name,
+                root_cert_hash: roothash,
+            };
             client
-                .insert_roothash(&handle, roothash, &secret_key)
+                .insert_handle_descriptor(&handle, &descriptor, &secret_key)
                 .await?;
             println!("ok");
         }

@@ -31,7 +31,7 @@ macro_rules! v1_kind {
 }
 
 impl Message {
-    v1_kind!(root_cert_hash);
+    v1_kind!(handle_descriptor);
     v1_kind!(gateway_descriptor);
 
     v1_kind!(message_content);
