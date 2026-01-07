@@ -38,7 +38,7 @@ pub trait GatewayProtocol {
         message: Message,
     ) -> Result<(), GatewayServerError>;
 
-    /// Receive one or more messages, from one or many mailboxes. This is batched to make long-polling more efficient. The gateway *may* choose to limit the number of messages in the response, so clients should be prepared to repeat until getting an empty "page".
+    /// Receive one or more messages, from one or many mailboxes. This is batched to make long-polling more efficient. The gateway may choose to limit the number of messages in the response, so clients should be prepared to repeat until getting an empty "page".
     async fn v1_mailbox_multirecv(
         &self,
         args: Vec<MailboxRecvArgs>,

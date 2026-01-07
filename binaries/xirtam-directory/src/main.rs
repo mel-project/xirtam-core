@@ -17,6 +17,7 @@ use std::os::unix::fs::PermissionsExt;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 use xirtam_crypt::signing::SigningSecret;
+use url::Url;
 
 use crate::{config::Args, mirror::MirrorState, state::DirectoryState};
 
@@ -41,10 +42,13 @@ async fn main() -> anyhow::Result<()> {
     let pool = pool_res?;
     let merkle = merkle_res?;
 
-    let mirror = args.mirror.map(|endpoint| {
+    let mirror = if let Some(endpoint) = args.mirror {
         tracing::info!(endpoint = %endpoint, "directory mirror enabled");
-        Arc::new(MirrorState::new(endpoint))
-    });
+        let endpoint = Url::parse(&endpoint).context("invalid mirror endpoint URL")?;
+        Some(Arc::new(MirrorState::new(endpoint)))
+    } else {
+        None
+    };
     let secret_key = if mirror.is_some() {
         None
     } else {

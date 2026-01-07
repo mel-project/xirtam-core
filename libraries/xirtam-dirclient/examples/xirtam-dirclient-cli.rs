@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
-use nanorpc_reqwest::ReqwestTransport;
 use sqlx::{
     ConnectOptions,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -12,7 +11,9 @@ use xirtam_crypt::{
     signing::{SigningPublic, SigningSecret},
 };
 use xirtam_dirclient::DirClient;
+use xirtam_nanorpc::Transport;
 use xirtam_structs::handle::Handle;
+use url::Url;
 
 #[derive(Parser, Debug)]
 #[command(name = "xirtam-dirclient-cli")]
@@ -76,7 +77,8 @@ async fn main() -> anyhow::Result<()> {
         .min_connections(1) // IMPORTANT: keep at least one connection open
         .connect_with(opts)
         .await?;
-    let transport = ReqwestTransport::new(reqwest::Client::new(), args.endpoint);
+    let endpoint = Url::parse(&args.endpoint)?;
+    let transport = Transport::new(endpoint);
     let client = DirClient::new(transport, anchor_pk, pool).await?;
 
     match args.command {

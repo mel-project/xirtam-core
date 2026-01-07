@@ -2,13 +2,14 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
 use nanorpc::DynRpcTransport;
-use nanorpc_reqwest::ReqwestTransport;
 use tokio::sync::RwLock;
 use xirtam_crypt::hash::Hash;
+use xirtam_nanorpc::Transport;
 use xirtam_structs::directory::{
     DirectoryAnchor, DirectoryChunk, DirectoryClient, DirectoryErr, DirectoryHistoryIterExt,
     DirectoryUpdate, PowSolution,
 };
+use url::Url;
 
 use crate::{db, merkle::MeshaNodeStore, state::DirectoryState};
 
@@ -20,8 +21,8 @@ pub struct MirrorState {
 }
 
 impl MirrorState {
-    pub fn new(endpoint: String) -> Self {
-        let transport = ReqwestTransport::new(reqwest::Client::new(), endpoint);
+    pub fn new(endpoint: Url) -> Self {
+        let transport = Transport::new(endpoint);
         let client = DirectoryClient::from(transport);
         Self {
             client,

@@ -1,5 +1,5 @@
 [package]
-name = "nanorpc-reqwest"
+name = "xirtam-nanorpc"
 version.workspace = true
 repository.workspace = true
 license.workspace = true
@@ -10,3 +10,4 @@ anyhow = "1.0.100"
 async-trait = "0.1"
 nanorpc = "0.1"
 reqwest = { version = "0.12.23", default-features = false, features = ["json", "rustls-tls"] }
+url = "2.5.7"
