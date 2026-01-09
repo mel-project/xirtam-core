@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use async_compression::tokio::bufread::Lz4Decoder;
+use async_compression::tokio::write::Lz4Encoder;
 use futures_concurrency::future::Race;
 use nanorpc::{JrpcId, JrpcRequest, JrpcResponse, RpcService};
 use serde_json::json;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time;
@@ -25,6 +27,19 @@ where
     }
 }
 
+pub async fn serve_lz4tcp<S>(addr: impl ToSocketAddrs, service: S) -> anyhow::Result<()>
+where
+    S: RpcService,
+{
+    let service = std::sync::Arc::new(service);
+    let listener = TcpListener::bind(addr).await?;
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let service = service.clone();
+        tokio::spawn(async move { handle_lz4_connection(service, stream).await });
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct RawTcpClient {
     cmd_tx: mpsc::Sender<ClientCommand>,
@@ -32,8 +47,16 @@ pub(crate) struct RawTcpClient {
 
 impl RawTcpClient {
     pub(crate) fn new(endpoint: Url) -> Self {
+        Self::new_with_mode(endpoint, WireMode::Plain)
+    }
+
+    pub(crate) fn new_lz4(endpoint: Url) -> Self {
+        Self::new_with_mode(endpoint, WireMode::Lz4)
+    }
+
+    fn new_with_mode(endpoint: Url, mode: WireMode) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel(256);
-        tokio::spawn(async move { run_tcp_client(endpoint, cmd_rx).await });
+        tokio::spawn(async move { run_tcp_client(endpoint, mode, cmd_rx).await });
         Self { cmd_tx }
     }
 
@@ -92,81 +115,40 @@ impl Connection {
             .port()
             .ok_or_else(|| anyhow::anyhow!("tcp endpoint missing port"))?;
         let stream = TcpStream::connect(format!("{host}:{port}")).await?;
-        let (reader, mut writer) = stream.into_split();
+        let (reader, writer) = stream.into_split();
 
-        let (write_tx, mut write_rx) = mpsc::channel::<String>(256);
-        let (event_tx, event_rx) = mpsc::channel::<ConnEvent>(256);
+        let (write_tx, event_rx) = connect_with_io(reader, writer, false).await;
+        Ok(Self { write_tx, event_rx })
+    }
 
-        let mut reader = BufReader::new(reader);
-        let read_event_tx = event_tx.clone();
-        tokio::spawn(async move {
-            let mut line = String::new();
-            loop {
-                line.clear();
-                match reader.read_line(&mut line).await {
-                    Ok(0) => {
-                        let _ = read_event_tx
-                            .send(ConnEvent::Closed(anyhow::anyhow!(
-                                "tcp connection closed"
-                            )))
-                            .await;
-                        break;
-                    }
-                    Ok(_) => {
-                        let trimmed =
-                            line.trim_end_matches(|c| c == '\n' || c == '\r').to_string();
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-                        match serde_json::from_str::<JrpcResponse>(&trimmed) {
-                            Ok(resp) => {
-                                if read_event_tx.send(ConnEvent::Response(resp)).await.is_err() {
-                                    break;
-                                }
-                            }
-                            Err(err) => {
-                                let _ = read_event_tx
-                                    .send(ConnEvent::Closed(anyhow::anyhow!(err)))
-                                    .await;
-                                break;
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        let _ = read_event_tx
-                            .send(ConnEvent::Closed(anyhow::anyhow!(err)))
-                            .await;
-                        break;
-                    }
-                }
-            }
-        });
+    async fn connect_lz4(endpoint: &Url) -> Result<Self, anyhow::Error> {
+        let host = endpoint
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("lz4tcp endpoint missing host"))?;
+        let port = endpoint
+            .port()
+            .ok_or_else(|| anyhow::anyhow!("lz4tcp endpoint missing port"))?;
+        let stream = TcpStream::connect(format!("{host}:{port}")).await?;
+        let (reader, writer) = stream.into_split();
+        let reader = Lz4Decoder::new(BufReader::new(reader));
+        let writer = Lz4Encoder::new(writer);
 
-        tokio::spawn(async move {
-            while let Some(line) = write_rx.recv().await {
-                if writer.write_all(line.as_bytes()).await.is_err()
-                    || writer.write_all(b"\n").await.is_err()
-                {
-                    let _ = event_tx
-                        .send(ConnEvent::Closed(anyhow::anyhow!(
-                            "tcp connection closed"
-                        )))
-                        .await;
-                    return;
-                }
-            }
-            let _ = event_tx
-                .send(ConnEvent::Closed(anyhow::anyhow!(
-                    "tcp connection closed"
-                )))
-                .await;
-        });
-
+        let (write_tx, event_rx) = connect_with_io(reader, writer, true).await;
         Ok(Self { write_tx, event_rx })
     }
 }
 
-async fn run_tcp_client(endpoint: Url, mut cmd_rx: mpsc::Receiver<ClientCommand>) {
+#[derive(Clone, Copy)]
+enum WireMode {
+    Plain,
+    Lz4,
+}
+
+async fn run_tcp_client(
+    endpoint: Url,
+    mode: WireMode,
+    mut cmd_rx: mpsc::Receiver<ClientCommand>,
+) {
     let mut connection: Option<Connection> = None;
     let mut in_flight: HashMap<JrpcId, oneshot::Sender<Result<JrpcResponse, anyhow::Error>>> =
         HashMap::new();
@@ -183,7 +165,11 @@ async fn run_tcp_client(endpoint: Url, mut cmd_rx: mpsc::Receiver<ClientCommand>
         match event {
             ClientEvent::Command(Some(ClientCommand::Call { req, resp_tx })) => {
                 if connection.is_none() {
-                    match Connection::connect(&endpoint).await {
+                    let result = match mode {
+                        WireMode::Plain => Connection::connect(&endpoint).await,
+                        WireMode::Lz4 => Connection::connect_lz4(&endpoint).await,
+                    };
+                    match result {
                         Ok(conn) => connection = Some(conn),
                         Err(err) => {
                             let _ = resp_tx.send(Err(err));
@@ -252,13 +238,129 @@ async fn handle_connection<S>(service: std::sync::Arc<S>, stream: TcpStream)
 where
     S: RpcService,
 {
-    let (reader, mut writer) = stream.into_split();
+    let (reader, writer) = stream.into_split();
+    handle_connection_io(service, reader, writer, false).await;
+}
+
+async fn handle_lz4_connection<S>(service: std::sync::Arc<S>, stream: TcpStream)
+where
+    S: RpcService,
+{
+    let (reader, writer) = stream.into_split();
+    let reader = Lz4Decoder::new(BufReader::new(reader));
+    let writer = Lz4Encoder::new(writer);
+    handle_connection_io(service, reader, writer, true).await;
+}
+
+async fn connect_with_io<R, W>(
+    reader: R,
+    mut writer: W,
+    flush_each: bool,
+) -> (mpsc::Sender<String>, mpsc::Receiver<ConnEvent>)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let (write_tx, mut write_rx) = mpsc::channel::<String>(256);
+    let (event_tx, event_rx) = mpsc::channel::<ConnEvent>(256);
+
+    let mut reader = BufReader::new(reader);
+    let read_event_tx = event_tx.clone();
+    tokio::spawn(async move {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line).await {
+                Ok(0) => {
+                    let _ = read_event_tx
+                        .send(ConnEvent::Closed(anyhow::anyhow!(
+                            "tcp connection closed"
+                        )))
+                        .await;
+                    break;
+                }
+                Ok(_) => {
+                    let trimmed =
+                        line.trim_end_matches(|c| c == '\n' || c == '\r').to_string();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    match serde_json::from_str::<JrpcResponse>(&trimmed) {
+                        Ok(resp) => {
+                            if read_event_tx.send(ConnEvent::Response(resp)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            let _ = read_event_tx
+                                .send(ConnEvent::Closed(anyhow::anyhow!(err)))
+                                .await;
+                            break;
+                        }
+                    }
+                }
+                Err(err) => {
+                    let _ = read_event_tx
+                        .send(ConnEvent::Closed(anyhow::anyhow!(err)))
+                        .await;
+                    break;
+                }
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        while let Some(line) = write_rx.recv().await {
+            let write_line = async {
+                writer.write_all(line.as_bytes()).await?;
+                writer.write_all(b"\n").await?;
+                if flush_each {
+                    writer.flush().await?;
+                }
+                Ok::<(), std::io::Error>(())
+            };
+            match time::timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS), write_line).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(_) => {
+                    let _ = event_tx
+                        .send(ConnEvent::Closed(anyhow::anyhow!(
+                            "tcp connection closed"
+                        )))
+                        .await;
+                    return;
+                }
+            }
+        }
+        let _ = event_tx
+            .send(ConnEvent::Closed(anyhow::anyhow!(
+                "tcp connection closed"
+            )))
+            .await;
+    });
+
+    (write_tx, event_rx)
+}
+
+async fn handle_connection_io<S, R, W>(
+    service: std::sync::Arc<S>,
+    reader: R,
+    mut writer: W,
+    flush_each: bool,
+) where
+    S: RpcService,
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
     let (write_tx, mut write_rx) = mpsc::channel::<String>(256);
     tokio::spawn(async move {
         while let Some(line) = write_rx.recv().await {
             let write_line = async {
                 writer.write_all(line.as_bytes()).await?;
-                writer.write_all(b"\n").await
+                writer.write_all(b"\n").await?;
+                if flush_each {
+                    writer.flush().await?;
+                }
+                Ok::<(), std::io::Error>(())
             };
             match time::timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS), write_line).await {
                 Ok(Ok(())) => {}

@@ -34,18 +34,18 @@ struct EnvelopePayload {
     ciphertext: Vec<u8>,
 }
 
-impl EnvelopePublic {
+impl EnvelopeSecret {
     pub fn seal_to(
         &self,
+        recipient: &EnvelopePublic,
         plaintext: Bytes,
-        sender_long_term: &DhSecret,
     ) -> Result<Bytes, EnvelopeError> {
         let sender_ephemeral = DhSecret::random();
         let key_bytes = triple_dh(
-            sender_long_term,
-            &sender_ephemeral,
             &self.long_term,
-            &self.short_term,
+            &sender_ephemeral,
+            &recipient.long_term,
+            &recipient.short_term,
         );
         let key = AeadKey::from_bytes(key_bytes);
         let nonce = [0u8; 12];
@@ -59,9 +59,7 @@ impl EnvelopePublic {
         let encoded = bcs::to_bytes(&payload).map_err(|_| EnvelopeError)?;
         Ok(Bytes::from(encoded))
     }
-}
 
-impl EnvelopeSecret {
     pub fn open_from(
         &self,
         envelope: Bytes,
@@ -88,7 +86,10 @@ mod tests {
 
     #[test]
     fn envelope_roundtrip() {
-        let sender_long_term = DhSecret::random();
+        let sender_secret = EnvelopeSecret {
+            long_term: DhSecret::random(),
+            short_term: DhSecret::random(),
+        };
         let receiver_long_term = DhSecret::random();
         let receiver_short_term = DhSecret::random();
         let envelope_public = EnvelopePublic {
@@ -101,11 +102,11 @@ mod tests {
         };
         let plaintext = Bytes::from_static(b"roundtrip envelope test");
 
-        let sealed = envelope_public
-            .seal_to(plaintext.clone(), &sender_long_term)
+        let sealed = sender_secret
+            .seal_to(&envelope_public, plaintext.clone())
             .expect("seal");
         let opened = envelope_secret
-            .open_from(sealed, &sender_long_term.public_key())
+            .open_from(sealed, &sender_secret.long_term.public_key())
             .expect("open");
 
         assert_eq!(opened, plaintext);

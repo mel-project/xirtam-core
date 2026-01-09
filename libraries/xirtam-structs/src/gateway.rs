@@ -10,6 +10,7 @@ use serde_with::{Bytes, IfIsHumanReadable, serde_as};
 use smol_str::SmolStr;
 use thiserror::Error;
 use url::Url;
+use xirtam_crypt::dh::DhPublic;
 use xirtam_crypt::{hash::Hash, signing::SigningPublic};
 
 use crate::certificate::CertificateChain;
@@ -27,10 +28,23 @@ pub trait GatewayProtocol {
     ) -> Result<AuthToken, GatewayServerError>;
 
     /// Retrieve the devices for a given handle.
-    async fn v1_device_list(
+    async fn v1_device_certs(
         &self,
         handle: Handle,
     ) -> Result<Option<CertificateChain>, GatewayServerError>;
+
+    /// Retrieve the temp keys for
+    async fn v1_device_temp_pks(
+        &self,
+        handle: Handle,
+    ) -> Result<BTreeMap<Hash, DhPublic>, GatewayServerError>;
+
+    /// Store a device's temp public key.
+    async fn v1_device_add_temp_pk(
+        &self,
+        auth: AuthToken,
+        temp_pk: DhPublic,
+    ) -> Result<(), GatewayServerError>;
 
     /// Send a message into a mailbox.
     async fn v1_mailbox_send(

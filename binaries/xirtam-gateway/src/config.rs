@@ -17,6 +17,7 @@ struct Args {
 pub struct Config {
     pub listen: SocketAddr,
     pub tcp_listen: Option<SocketAddr>,
+    pub lz4_listen: Option<SocketAddr>,
     pub db_path: String,
     pub signing_sk: PathBuf,
     pub gateway_name: GatewayName,

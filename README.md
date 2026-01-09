@@ -16,6 +16,9 @@ What is a confederal protocol? [Read this blogpost first](https://nullchinchilla
 - No blockchain yet, but with a centralized directory service that imitates a blockchain (e.g. expensive PoW-based rationing, multi-provider read replication, transparency logs)
 	- Key constraint: updates must be somewhat expensive, and the whole protocol is designed around that fact
 	- "Decentralizing the directory" can easily be done later
+- Directory is append-only, with signed anchors and headers for snapshot verification
+	- Updates are batched into chunks and retrieved via directory RPC
+	- PoW uses EquiX with configurable effort
 - Confederal architecture
 	- No gateway-to-gateway protocol (other than convenience proxies)
 
@@ -48,7 +51,6 @@ root pk -> device 1
 
 **Problem**: revocation
 - Easiest/safest approach: revocation list in the directory. Every certificate, when presented, must have a proof of non-revocation.
-- "Good enough" approach: piggy-back revocation lists on various messages etc, and each participant (gateway and client) locally builds a grow-only revocation list.
 
 **Problem**: directory sees too much metadata
 - Easiest approach: full directory sync. This is not *too* bad:

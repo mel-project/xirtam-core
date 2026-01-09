@@ -4,7 +4,10 @@ use xirtam_structs::envelope::{EnvelopePublic, EnvelopeSecret};
 use xirtam_crypt::dh::DhSecret;
 
 fn envelope_benchmarks(c: &mut Criterion) {
-    let sender_long_term = DhSecret::random();
+    let sender_secret = EnvelopeSecret {
+        long_term: DhSecret::random(),
+        short_term: DhSecret::random(),
+    };
     let receiver_long_term = DhSecret::random();
     let receiver_short_term = DhSecret::random();
     let envelope_public = EnvelopePublic {
@@ -21,17 +24,17 @@ fn envelope_benchmarks(c: &mut Criterion) {
     group.throughput(Throughput::Elements(1));
     group.bench_function("seal", |b| {
         b.iter(|| {
-            let sealed = envelope_public
-                .seal_to(plaintext.clone(), &sender_long_term)
+            let sealed = sender_secret
+                .seal_to(&envelope_public, plaintext.clone())
                 .expect("seal");
             black_box(sealed);
         });
     });
 
-    let sealed = envelope_public
-        .seal_to(plaintext.clone(), &sender_long_term)
+    let sealed = sender_secret
+        .seal_to(&envelope_public, plaintext.clone())
         .expect("seal");
-    let sender_public = sender_long_term.public_key();
+    let sender_public = sender_secret.long_term.public_key();
     group.bench_function("open", |b| {
         b.iter(|| {
             let opened = envelope_secret

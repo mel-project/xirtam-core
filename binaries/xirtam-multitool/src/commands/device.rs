@@ -5,16 +5,13 @@ use bytes::Bytes;
 use clap::{Parser, Subcommand};
 use serde::{Serialize, de::DeserializeOwned};
 use url::Url;
-use xirtam_crypt::{
-    dh::DhSecret,
-    signing::SigningSecret,
-};
+use xirtam_crypt::{dh::DhSecret, signing::SigningSecret};
 use xirtam_nanorpc::Transport;
 use xirtam_structs::{
+    Message,
     certificate::{CertificateChain, DeviceSecret},
     gateway::{AuthToken, GatewayClient, MailboxId, MailboxRecvArgs},
     handle::Handle,
-    Message,
     timestamp::Timestamp,
 };
 
@@ -101,7 +98,7 @@ pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
             let endpoint = resolve_gateway_endpoint(global, &handle).await?;
             let client = GatewayClient::from(Transport::new(endpoint));
             let chain = client
-                .v1_device_list(handle)
+                .v1_device_certs(handle)
                 .await?
                 .map_err(|err| anyhow::anyhow!(err.to_string()))?;
             let output = ChainListOutput {
@@ -223,10 +220,7 @@ pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn resolve_gateway_endpoint(
-    global: &GlobalArgs,
-    handle: &Handle,
-) -> anyhow::Result<Url> {
+async fn resolve_gateway_endpoint(global: &GlobalArgs, handle: &Handle) -> anyhow::Result<Url> {
     let client = build_dir_client(global).await?;
     let descriptor = client
         .get_handle_descriptor(handle)
@@ -256,18 +250,14 @@ fn expiry_from_ttl(ttl_secs: Option<u64>) -> Timestamp {
 }
 
 fn read_bcs<T: DeserializeOwned>(path: &Path) -> anyhow::Result<T> {
-    let data = std::fs::read(path)
-        .with_context(|| format!("read {}", path.display()))?;
-    let value = bcs::from_bytes(&data)
-        .with_context(|| format!("decode BCS {}", path.display()))?;
+    let data = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    let value = bcs::from_bytes(&data).with_context(|| format!("decode BCS {}", path.display()))?;
     Ok(value)
 }
 
 fn write_bcs<T: Serialize>(path: &Path, value: &T) -> anyhow::Result<()> {
-    let data = bcs::to_bytes(value)
-        .context("serialize BCS value")?;
-    std::fs::write(path, data)
-        .with_context(|| format!("write {}", path.display()))?;
+    let data = bcs::to_bytes(value).context("serialize BCS value")?;
+    std::fs::write(path, data).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
 

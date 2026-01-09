@@ -7,7 +7,7 @@ mod tcp;
 
 pub(crate) const REQUEST_TIMEOUT_SECS: u64 = 600;
 
-pub use tcp::serve_tcp;
+pub use tcp::{serve_lz4tcp, serve_tcp};
 
 #[derive(Clone)]
 pub struct Transport {
@@ -22,6 +22,9 @@ impl Transport {
             },
             "tcp" => Self {
                 inner: TransportInner::Tcp(tcp::RawTcpClient::new(endpoint)),
+            },
+            "lz4tcp" => Self {
+                inner: TransportInner::Tcp(tcp::RawTcpClient::new_lz4(endpoint)),
             },
             scheme => panic!("unsupported RPC endpoint scheme: {scheme}"),
         }

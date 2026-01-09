@@ -1,4 +1,7 @@
-use xirtam_crypt::hash::BcsHashExt;
+use std::collections::BTreeMap;
+
+use xirtam_crypt::hash::{BcsHashExt, Hash};
+use xirtam_crypt::dh::DhPublic;
 use xirtam_structs::certificate::CertificateChain;
 use xirtam_structs::gateway::{AuthToken, GatewayServerError};
 use xirtam_structs::handle::Handle;
@@ -124,4 +127,67 @@ pub async fn device_list(handle: Handle) -> Result<Option<CertificateChain>, Gat
     };
     let chain = bcs::from_bytes(&data).map_err(fatal_retry_later)?;
     Ok(Some(chain))
+}
+
+pub async fn device_add_temp_pk(
+    auth: AuthToken,
+    temp_pk: DhPublic,
+) -> Result<(), GatewayServerError> {
+    let auth_bytes = bcs::to_bytes(&auth).map_err(fatal_retry_later)?;
+    let device_hash = sqlx::query_scalar::<_, Vec<u8>>(
+        "SELECT device_hash FROM device_auth_tokens WHERE auth_token = ?",
+    )
+    .bind(auth_bytes)
+    .fetch_optional(&*DATABASE)
+    .await
+    .map_err(fatal_retry_later)?;
+    let Some(device_hash) = device_hash else {
+        return Err(GatewayServerError::AccessDenied);
+    };
+    sqlx::query(
+        "INSERT OR REPLACE INTO device_temp_pks (device_hash, temp_pk) VALUES (?, ?)",
+    )
+    .bind(device_hash)
+    .bind(temp_pk.to_bytes().to_vec())
+    .execute(&*DATABASE)
+    .await
+    .map_err(fatal_retry_later)?;
+    Ok(())
+}
+
+pub async fn device_temp_pks(
+    handle: Handle,
+) -> Result<BTreeMap<Hash, DhPublic>, GatewayServerError> {
+    let rows = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+        "SELECT t.device_hash, t.temp_pk \
+         FROM device_temp_pks t \
+         JOIN device_auth_tokens d ON t.device_hash = d.device_hash \
+         WHERE d.handle = ?",
+    )
+    .bind(handle.as_str())
+    .fetch_all(&*DATABASE)
+    .await
+    .map_err(fatal_retry_later)?;
+
+    let mut out = BTreeMap::new();
+    for (device_hash, temp_pk) in rows {
+        let hash = bytes_to_hash(&device_hash)?;
+        let pk = bytes_to_pk(&temp_pk)?;
+        out.insert(hash, pk);
+    }
+    Ok(out)
+}
+
+fn bytes_to_hash(bytes: &[u8]) -> Result<Hash, GatewayServerError> {
+    let buf: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| fatal_retry_later("invalid device hash length"))?;
+    Ok(Hash::from_bytes(buf))
+}
+
+fn bytes_to_pk(bytes: &[u8]) -> Result<DhPublic, GatewayServerError> {
+    let buf: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| fatal_retry_later("invalid temp pk length"))?;
+    Ok(DhPublic::from_bytes(buf))
 }
