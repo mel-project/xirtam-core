@@ -23,7 +23,7 @@ pub async fn mailbox_send(
     auth: AuthToken,
     mailbox: MailboxId,
     message: Message,
-) -> Result<(), GatewayServerError> {
+) -> Result<NanoTimestamp, GatewayServerError> {
     let mut tx = DATABASE.begin().await.map_err(fatal_retry_later)?;
     let acl = acl_for_token(&mut tx, &mailbox, auth).await?;
     if !acl.can_send {
@@ -49,7 +49,7 @@ pub async fn mailbox_send(
     tx.commit().await.map_err(fatal_retry_later)?;
     tracing::debug!(auth = ?auth, mailbox = ?mailbox, "mailbox send accepted");
     MAILBOX_NOTIFY.incr(mailbox);
-    Ok(())
+    Ok(received_at)
 }
 
 pub async fn mailbox_multirecv(

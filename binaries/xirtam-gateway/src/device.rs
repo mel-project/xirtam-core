@@ -4,7 +4,7 @@ use xirtam_crypt::dh::DhPublic;
 use xirtam_crypt::hash::{BcsHashExt, Hash};
 use xirtam_crypt::signing::Signable;
 use xirtam_structs::certificate::CertificateChain;
-use xirtam_structs::gateway::{AuthToken, GatewayServerError, SignedTempPk};
+use xirtam_structs::gateway::{AuthToken, GatewayServerError, SignedMediumPk};
 use xirtam_structs::handle::Handle;
 
 use crate::config::CONFIG;
@@ -130,9 +130,9 @@ pub async fn device_list(handle: Handle) -> Result<Option<CertificateChain>, Gat
     Ok(Some(chain))
 }
 
-pub async fn device_add_temp_pk(
+pub async fn device_add_medium_pk(
     auth: AuthToken,
-    temp_pk: SignedTempPk,
+    medium_pk: SignedMediumPk,
 ) -> Result<(), GatewayServerError> {
     let auth_bytes = bcs::to_bytes(&auth).map_err(fatal_retry_later)?;
     let row = sqlx::query_as::<_, (Vec<u8>, String)>(
@@ -162,31 +162,31 @@ pub async fn device_add_temp_pk(
         .iter()
         .find(|cert| cert.pk.bcs_hash() == device_hash_obj)
         .ok_or(GatewayServerError::AccessDenied)?;
-    temp_pk
-        .verify(device.pk.sign_pk)
+    medium_pk
+        .verify(device.pk.signing_public())
         .map_err(|_| GatewayServerError::AccessDenied)?;
-    let created = i64::try_from(temp_pk.created.0)
+    let created = i64::try_from(medium_pk.created.0)
         .map_err(|_| fatal_retry_later("invalid created timestamp"))?;
     sqlx::query(
-        "INSERT OR REPLACE INTO device_temp_pks \
-         (device_hash, temp_pk, created, signature) VALUES (?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO device_medium_pks \
+         (device_hash, medium_pk, created, signature) VALUES (?, ?, ?, ?)",
     )
     .bind(device_hash)
-    .bind(temp_pk.temp_pk.to_bytes().to_vec())
+    .bind(medium_pk.medium_pk.to_bytes().to_vec())
     .bind(created)
-    .bind(temp_pk.signature.to_bytes().to_vec())
+    .bind(medium_pk.signature.to_bytes().to_vec())
     .execute(&*DATABASE)
     .await
     .map_err(fatal_retry_later)?;
     Ok(())
 }
 
-pub async fn device_temp_pks(
+pub async fn device_medium_pks(
     handle: Handle,
-) -> Result<BTreeMap<Hash, SignedTempPk>, GatewayServerError> {
+) -> Result<BTreeMap<Hash, SignedMediumPk>, GatewayServerError> {
     let rows = sqlx::query_as::<_, (Vec<u8>, Vec<u8>, i64, Vec<u8>)>(
-        "SELECT t.device_hash, t.temp_pk, t.created, t.signature \
-         FROM device_temp_pks t \
+        "SELECT t.device_hash, t.medium_pk, t.created, t.signature \
+         FROM device_medium_pks t \
          JOIN device_auth_tokens d ON t.device_hash = d.device_hash \
          WHERE d.handle = ?",
     )
@@ -196,15 +196,15 @@ pub async fn device_temp_pks(
     .map_err(fatal_retry_later)?;
 
     let mut out = BTreeMap::new();
-    for (device_hash, temp_pk, created, signature) in rows {
+    for (device_hash, medium_pk, created, signature) in rows {
         let hash = bytes_to_hash(&device_hash)?;
-        let pk = bytes_to_pk(&temp_pk)?;
+        let pk = bytes_to_pk(&medium_pk)?;
         let created = created_to_timestamp(created)?;
         let signature = bytes_to_signature(&signature)?;
         out.insert(
             hash,
-            SignedTempPk {
-                temp_pk: pk,
+            SignedMediumPk {
+                medium_pk: pk,
                 created,
                 signature,
             },
@@ -223,7 +223,7 @@ fn bytes_to_hash(bytes: &[u8]) -> Result<Hash, GatewayServerError> {
 fn bytes_to_pk(bytes: &[u8]) -> Result<DhPublic, GatewayServerError> {
     let buf: [u8; 32] = bytes
         .try_into()
-        .map_err(|_| fatal_retry_later("invalid temp pk length"))?;
+        .map_err(|_| fatal_retry_later("invalid medium pk length"))?;
     Ok(DhPublic::from_bytes(buf))
 }
 

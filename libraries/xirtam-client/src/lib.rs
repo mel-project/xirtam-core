@@ -1,8 +1,13 @@
 mod c_api;
 mod config;
 mod database;
+mod directory;
+mod dm;
+mod gateway;
+mod identity;
+mod internal;
 mod main_loop;
-mod rpc;
+mod peer;
 
 use std::sync::mpsc::Sender;
 
@@ -10,7 +15,7 @@ use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use tokio::sync::oneshot;
 
 pub use crate::config::Config;
-use crate::rpc::InternalClient;
+use crate::internal::InternalClient;
 
 pub struct Client {
     send_rpc: Sender<(JrpcRequest, oneshot::Sender<JrpcResponse>)>,
@@ -23,7 +28,7 @@ impl Client {
         Self { send_rpc }
     }
 
-    pub fn rpc(&self) -> InternalClient<DynRpcTransport> {
+    pub fn rpc(&self) -> InternalClient {
         let transport = DynRpcTransport::new(InternalTransport {
             send_rpc: self.send_rpc.clone(),
         });

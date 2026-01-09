@@ -1,6 +1,6 @@
-CREATE TABLE device_temp_pks (
+CREATE TABLE device_medium_pks (
     device_hash BLOB NOT NULL PRIMARY KEY,
-    temp_pk BLOB NOT NULL,
+    medium_pk BLOB NOT NULL,
     created INTEGER NOT NULL,
     signature BLOB NOT NULL
 );

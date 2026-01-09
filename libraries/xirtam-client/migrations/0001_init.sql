@@ -3,8 +3,8 @@ CREATE TABLE client_identity (
     handle TEXT NOT NULL,
     device_secret BLOB NOT NULL,
     cert_chain BLOB NOT NULL,
-    temp_pk_current BLOB NOT NULL,
-    temp_pk_prev BLOB NOT NULL
+    medium_sk_current BLOB NOT NULL,
+    medium_sk_prev BLOB NOT NULL
 );
 
 CREATE TABLE dm_messages (

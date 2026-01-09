@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use nanorpc::{JrpcRequest, JrpcResponse};
 use tokio::sync::oneshot;
 
-use crate::{Config, database::DATABASE, rpc::InternalProtocol};
+use crate::{Config, database::DATABASE, internal::InternalProtocol};
 
 pub async fn main_loop(
     cfg: Config,

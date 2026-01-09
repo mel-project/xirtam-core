@@ -6,8 +6,8 @@ What is a confederal protocol? [Read this blogpost first](https://nullchinchilla
 
 - [x] Directory RPC + PoW updates + header sync (server + dirclient)
 - [x] Gateway RPC + mailbox storage/ACLs + device auth
-- [x] Core structs: handles, gateway descriptors, certificates, envelopes, message kinds
-- [x] DM encryption format (encrypted headers + signed temp keys)
+- [x] Core structs: handles, gateway descriptors, certificates, message kinds
+- [x] DM encryption format (encrypted headers + signed medium keys)
 - [ ] Group protocol (group IDs, rekeying, membership control)
 - [ ] Directory privacy improvements (PIR/bucketed lookup)
 
@@ -70,12 +70,12 @@ When reading from a mailbox, each item in the mailbox comes attached with the *h
 
 ### Encrypted DMs
 
-DMs are encrypted with an `EncryptedDm` payload (stored inside `v1.direct_message`). It has:
+DMs are encrypted with an `Envelope` payload (stored inside `v1.direct_message`). It has:
 
 - `headers`: `BTreeMap<Hash, Bytes>` keyed by the recipient device hash (the cert's `bcs_hash`).
-- `body`: AEAD-encrypted `Message` (`v1.message_content`) with zero nonce and empty AAD.
+- `body`: AEAD-encrypted `Message` with zero nonce and empty AAD.
 
-Each header is `envelope_encrypt(recipient_temp_pk, header_bytes)` where `header_bytes` is the BCS encoding of:
+Each header is encrypted using a sender ephemeral DH key to the recipient medium-term key, and contains the BCS encoding of:
 
 ```
 {
@@ -86,7 +86,7 @@ Each header is `envelope_encrypt(recipient_temp_pk, header_bytes)` where `header
 }
 ```
 
-Recipients fetch signed temp keys from the gateway (`v1_device_temp_pks`) and use their own temp secret to open the envelope. They then:
+Senders fetch signed medium-term keys from the gateway (`v1_device_medium_pks`) and use them to encrypt headers. Recipients use their own medium-term secret to open the envelope. They then:
 - verify the sender chain against the handle's root cert hash from the directory
 - verify `key_sig` against the sender device signing key
 - decrypt the body with `K` to recover `MessageContent { mime, body }`

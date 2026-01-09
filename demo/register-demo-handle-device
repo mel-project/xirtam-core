@@ -39,7 +39,7 @@ if [[ ! -f "$DEVICE_CHAIN" ]]; then
   "${MULTITOOL[@]}" device chain-init --root-secret "$DEVICE_SECRET" --out "$DEVICE_CHAIN"
 fi
 
-ROOT_HASH="$("${MULTITOOL[@]}" device chain-dump --chain "$DEVICE_CHAIN" | jq -r '.[0].signed_by')"
+ROOT_HASH="$("${MULTITOOL[@]}" device chain-dump --chain "$DEVICE_CHAIN" | jq -r '.[0].pk_hash')"
 
 if [[ -z "$ROOT_HASH" || "$ROOT_HASH" == "null" ]]; then
   echo "failed to extract root hash from $DEVICE_CHAIN" >&2

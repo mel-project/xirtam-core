@@ -5,11 +5,11 @@ use bytes::Bytes;
 use clap::{Parser, Subcommand};
 use serde::{Serialize, de::DeserializeOwned};
 use url::Url;
-use xirtam_crypt::{dh::DhSecret, signing::SigningSecret};
 use xirtam_nanorpc::Transport;
+use xirtam_crypt::hash::BcsHashExt;
 use xirtam_structs::{
     Message,
-    certificate::{CertificateChain, DeviceSecret},
+    certificate::{CertificateChain, DeviceCertificate, DeviceSecret},
     gateway::{AuthToken, GatewayClient, MailboxId, MailboxRecvArgs},
     handle::Handle,
     timestamp::Timestamp,
@@ -92,6 +92,12 @@ struct AuthOutput {
     auth_token: AuthToken,
 }
 
+#[derive(Serialize)]
+struct ChainDumpEntry {
+    cert: DeviceCertificate,
+    pk_hash: xirtam_crypt::hash::Hash,
+}
+
 pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
     match args.command {
         Command::List { handle } => {
@@ -122,10 +128,7 @@ pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
             print_json(&output)?;
         }
         Command::NewSecret { out } => {
-            let secret = DeviceSecret {
-                sign_sk: SigningSecret::random(),
-                long_sk: DhSecret::random(),
-            };
+            let secret = DeviceSecret::random();
             write_secret_file(&out, &secret)?;
         }
         Command::ChainInit {
@@ -158,7 +161,15 @@ pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
         }
         Command::ChainDump { chain } => {
             let chain = read_bcs::<CertificateChain>(&chain)?;
-            print_json(&chain)?;
+            let dump: Vec<ChainDumpEntry> = chain
+                .0
+                .into_iter()
+                .map(|cert| ChainDumpEntry {
+                    pk_hash: cert.pk.bcs_hash(),
+                    cert,
+                })
+                .collect();
+            print_json(&dump)?;
         }
         Command::MailboxSend {
             handle,

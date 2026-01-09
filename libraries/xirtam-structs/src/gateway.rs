@@ -35,17 +35,17 @@ pub trait GatewayProtocol {
         handle: Handle,
     ) -> Result<Option<CertificateChain>, GatewayServerError>;
 
-    /// Retrieve the temp keys for
-    async fn v1_device_temp_pks(
+    /// Retrieve the medium-term keys for a given handle.
+    async fn v1_device_medium_pks(
         &self,
         handle: Handle,
-    ) -> Result<BTreeMap<Hash, SignedTempPk>, GatewayServerError>;
+    ) -> Result<BTreeMap<Hash, SignedMediumPk>, GatewayServerError>;
 
-    /// Store a device's temp public key.
-    async fn v1_device_add_temp_pk(
+    /// Store a device's medium-term public key.
+    async fn v1_device_add_medium_pk(
         &self,
         auth: AuthToken,
-        temp_pk: SignedTempPk,
+        medium_pk: SignedMediumPk,
     ) -> Result<(), GatewayServerError>;
 
     /// Send a message into a mailbox.
@@ -54,7 +54,7 @@ pub trait GatewayProtocol {
         auth: AuthToken,
         mailbox: MailboxId,
         message: Message,
-    ) -> Result<(), GatewayServerError>;
+    ) -> Result<NanoTimestamp, GatewayServerError>;
 
     /// Receive one or more messages, from one or many mailboxes. This is batched to make long-polling more efficient. The gateway may choose to limit the number of messages in the response, so clients should be prepared to repeat until getting an empty "page".
     async fn v1_mailbox_multirecv(
@@ -73,15 +73,15 @@ pub trait GatewayProtocol {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SignedTempPk {
-    pub temp_pk: DhPublic,
+pub struct SignedMediumPk {
+    pub medium_pk: DhPublic,
     pub created: Timestamp,
     pub signature: Signature,
 }
 
-impl Signable for SignedTempPk {
+impl Signable for SignedMediumPk {
     fn signed_value(&self) -> Vec<u8> {
-        bcs::to_bytes(&(&self.temp_pk, &self.created)).unwrap()
+        bcs::to_bytes(&(&self.medium_pk, &self.created)).unwrap()
     }
 
     fn signature_mut(&mut self) -> &mut Signature {
