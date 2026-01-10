@@ -5,7 +5,7 @@ mod directory;
 mod dm;
 mod gateway;
 mod identity;
-mod internal;
+pub mod internal;
 mod main_loop;
 mod medium_keys;
 mod peer;
@@ -16,7 +16,7 @@ use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use tokio::sync::oneshot;
 
 pub use crate::config::Config;
-use crate::internal::InternalClient;
+pub use crate::internal::InternalClient;
 
 pub struct Client {
     send_rpc: Sender<(JrpcRequest, oneshot::Sender<JrpcResponse>)>,

@@ -79,12 +79,38 @@ async fn send_loop_once(ctx: &anyctx::AnyCtx<Config>) -> anyhow::Result<()> {
             continue;
         };
         let received_at = send_dm(ctx, &pending).await?;
-        sqlx::query("UPDATE dm_messages SET received_at = ? WHERE id = ?")
-            .bind(received_at.0 as i64)
-            .bind(pending.id)
-            .execute(db)
-            .await?;
+        mark_message_sent(db, pending.id, received_at).await?;
         DbNotify::touch();
+    }
+}
+
+async fn mark_message_sent(
+    db: &sqlx::SqlitePool,
+    id: i64,
+    received_at: NanoTimestamp,
+) -> anyhow::Result<()> {
+    let result = sqlx::query("UPDATE dm_messages SET received_at = ? WHERE id = ?")
+        .bind(received_at.0 as i64)
+        .bind(id)
+        .execute(db)
+        .await;
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) if is_unique_violation(&err) => {
+            sqlx::query("DELETE FROM dm_messages WHERE id = ?")
+                .bind(id)
+                .execute(db)
+                .await?;
+            Ok(())
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn is_unique_violation(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::Database(db_err) => db_err.code().as_deref() == Some("2067"),
+        _ => false,
     }
 }
 
@@ -244,15 +270,36 @@ async fn process_mailbox_entry(
         return Ok(());
     }
     let envelope: Envelope = bcs::from_bytes(&message.inner)?;
-    let decrypted = envelope
-        .decrypt_message(
-            &identity.device_secret.public(),
-            &identity.medium_sk_current,
-        )
-        .or_else(|_| {
-            envelope.decrypt_message(&identity.device_secret.public(), &identity.medium_sk_prev)
-        })
-        .map_err(|_| anyhow::anyhow!("failed to decrypt envelope"))?;
+    let device_pk = identity.device_secret.public();
+    let device_hash = device_pk.bcs_hash();
+    let header_count = envelope.headers.len();
+    let has_header = envelope.headers.contains_key(&device_hash);
+    tracing::debug!(
+        received_at = entry.received_at.0,
+        header_count,
+        has_header,
+        device_hash = %device_hash,
+        "dm envelope received",
+    );
+    let decrypted = match envelope.decrypt_message(&device_pk, &identity.medium_sk_current) {
+        Ok(decrypted) => {
+            tracing::debug!("dm decrypt with current medium key ok");
+            decrypted
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "dm decrypt with current medium key failed");
+            match envelope.decrypt_message(&device_pk, &identity.medium_sk_prev) {
+                Ok(decrypted) => {
+                    tracing::debug!("dm decrypt with previous medium key ok");
+                    decrypted
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, "dm decrypt with previous medium key failed");
+                    return Err(anyhow::anyhow!("failed to decrypt envelope"));
+                }
+            }
+        }
+    };
     let sender_handle = decrypted.handle().clone();
     let sender_descriptor = dir
         .get_handle_descriptor(&sender_handle)

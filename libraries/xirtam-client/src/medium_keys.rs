@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use anyhow::Context;
 use anyctx::AnyCtx;
+use anyhow::Context;
 use xirtam_crypt::dh::DhSecret;
 use xirtam_crypt::signing::Signable;
 use xirtam_structs::gateway::SignedMediumPk;
@@ -17,10 +17,10 @@ const MEDIUM_ROTATE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 pub async fn rotation_loop(ctx: &AnyCtx<Config>) {
     loop {
+        tokio::time::sleep(MEDIUM_ROTATE_INTERVAL).await;
         if let Err(err) = rotate_once(ctx).await {
             tracing::warn!(error = %err, "medium-key rotation error");
         }
-        tokio::time::sleep(MEDIUM_ROTATE_INTERVAL).await;
     }
 }
 

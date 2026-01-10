@@ -82,14 +82,17 @@ impl InternalProtocol for InternalImpl {
         &self,
         handle: Handle,
     ) -> Result<Option<RegisterStartInfo>, InternalRpcError> {
+        tracing::debug!(handle = %handle, "register_start begin");
         let dir = self.ctx.get(DIR_CLIENT);
         let descriptor = dir
             .get_handle_descriptor(&handle)
             .await
             .map_err(internal_err)?;
         let Some(descriptor) = descriptor else {
+            tracing::debug!(handle = %handle, "register_start not found");
             return Ok(None);
         };
+        tracing::debug!(handle = %handle, gateway = %descriptor.gateway_name, "register_start found");
         Ok(Some(RegisterStartInfo {
             handle,
             gateway_name: descriptor.gateway_name,
@@ -223,10 +226,12 @@ async fn rpc_loop(
     internal: InternalImpl,
     mut req_rx: tokio::sync::mpsc::UnboundedReceiver<(JrpcRequest, oneshot::Sender<JrpcResponse>)>,
 ) {
-    let service = crate::internal::InternalService(internal);
     while let Some((req, resp_tx)) = req_rx.recv().await {
-        let response = service.respond_raw(req).await;
-        resp_tx.send(response).ok();
+        let service = crate::internal::InternalService(internal.clone());
+        tokio::spawn(async move {
+            let response = service.respond_raw(req).await;
+            resp_tx.send(response).ok();
+        });
     }
 }
 
