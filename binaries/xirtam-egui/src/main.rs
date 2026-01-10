@@ -12,6 +12,7 @@ use xirtam_crypt::signing::SigningPublic;
 mod component;
 mod promises;
 mod screens;
+mod widgets;
 
 const DEFAULT_DIR_ENDPOINT: &str = "http://127.0.0.1:4000";
 const DEFAULT_DIR_ANCHOR_PK: &str = "OnF3Jh7tZ4o3g3bmUdgjTDa4qlMHN-2Q4RrJQD6K124";

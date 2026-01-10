@@ -1,4 +1,5 @@
 use eframe::egui::{Response, Widget};
+use egui::Button;
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
 use xirtam_structs::handle::Handle;
@@ -8,6 +9,8 @@ use std::sync::Arc;
 
 use crate::XirtamApp;
 use crate::promises::{AsyncMemo, flatten_rpc};
+use crate::widgets::add_contact::AddContact;
+use crate::widgets::convo::Convo;
 
 pub struct SteadyState<'a>(pub &'a mut XirtamApp);
 
@@ -15,6 +18,7 @@ impl Widget for SteadyState<'_> {
     fn ui(mut self, ui: &mut eframe::egui::Ui) -> Response {
         let rpc = Arc::new(self.0.client.rpc());
         let mut selected_chat: Var<Option<Handle>> = ui.use_state(|| None, ()).into_var();
+        let mut show_add_contact: Var<bool> = ui.use_state(|| false, ()).into_var();
         let all_chats = ui.use_memo(
             || {
                 AsyncMemo::spawn_async_with(rpc.clone(), |rpc| async move {
@@ -34,13 +38,22 @@ impl Widget for SteadyState<'_> {
             .exact_width(200.0)
             .frame(frame)
             .show_inside(ui, |ui| {
-                self.render_left(ui, &all_chats, &mut *selected_chat)
+                self.render_left(
+                    ui,
+                    &all_chats,
+                    &mut *selected_chat,
+                    &mut *show_add_contact,
+                )
             });
         eframe::egui::CentralPanel::default()
             .frame(frame)
             .show_inside(ui, |ui| {
                 self.render_right(ui, &*selected_chat);
             });
+        ui.add(AddContact {
+            app: self.0,
+            open: &mut *show_add_contact,
+        });
         ui.response()
     }
 }
@@ -51,8 +64,12 @@ impl<'a> SteadyState<'a> {
         ui: &mut eframe::egui::Ui,
         all_chats: &AsyncMemo<Result<BTreeSet<Handle>, String>>,
         selected_chat: &mut Option<Handle>,
+        show_add_contact: &mut bool,
     ) {
-        // render all the chats
+        if ui.add(Button::new("Add contact")).clicked() {
+            *show_add_contact = true;
+        }
+        ui.separator();
         match all_chats.poll() {
             std::task::Poll::Ready(lst) => match &*lst {
                 Ok(lst) => {
@@ -70,21 +87,11 @@ impl<'a> SteadyState<'a> {
                 ui.spinner();
             }
         }
-        // render a button
     }
 
     fn render_right(&mut self, ui: &mut eframe::egui::Ui, selected_chat: &Option<Handle>) {
         if let Some(handle) = selected_chat {
-            ui.heading(handle.to_string());
             ui.add(Convo(self.0, handle.clone()));
         }
-    }
-}
-
-struct Convo<'a>(&'a mut XirtamApp, Handle);
-
-impl Widget for Convo<'_> {
-    fn ui(self, ui: &mut eframe::egui::Ui) -> Response {
-        ui.response()
     }
 }

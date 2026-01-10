@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_concurrency::future::Race;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
+use smol_str::SmolStr;
 use tokio::sync::{Mutex, oneshot};
 
 use xirtam_crypt::dh::DhSecret;
@@ -173,6 +174,25 @@ impl InternalProtocol for InternalImpl {
         Ok(row.0)
     }
 
+    async fn add_contact(
+        &self,
+        handle: Handle,
+        init_msg: String,
+    ) -> Result<(), InternalRpcError> {
+        let dir = self.ctx.get(DIR_CLIENT);
+        if dir
+            .get_handle_descriptor(&handle)
+            .await
+            .map_err(internal_err)?
+            .is_none()
+        {
+            return Err(InternalRpcError::Other("handle not found".into()));
+        }
+        self.dm_send(handle, SmolStr::new("text/plain"), Bytes::from(init_msg))
+            .await
+            .map(|_| ())
+    }
+
     async fn dm_history(
         &self,
         peer: Handle,
@@ -186,7 +206,7 @@ impl InternalProtocol for InternalImpl {
             .map_err(|_| InternalRpcError::NotReady)?;
         let before = before.unwrap_or(i64::MAX);
         let after = after.unwrap_or(i64::MIN);
-        let rows = sqlx::query_as::<_, (i64, String, String, Vec<u8>, Option<i64>)>(
+        let mut rows = sqlx::query_as::<_, (i64, String, String, Vec<u8>, Option<i64>)>(
             "SELECT id, sender_handle, mime, body, received_at \
              FROM dm_messages \
              WHERE peer_handle = ? AND id <= ? AND id >= ? \
@@ -200,6 +220,7 @@ impl InternalProtocol for InternalImpl {
         .fetch_all(db)
         .await
         .map_err(internal_err)?;
+        rows.reverse();
         let mut out = Vec::with_capacity(rows.len());
         for (id, sender_handle, mime, body, received_at) in rows {
             let sender = Handle::parse(sender_handle).map_err(internal_err)?;

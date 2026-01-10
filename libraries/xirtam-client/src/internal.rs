@@ -33,6 +33,11 @@ pub trait InternalProtocol {
         mime: SmolStr,
         body: Bytes,
     ) -> Result<i64, InternalRpcError>;
+    async fn add_contact(
+        &self,
+        handle: Handle,
+        init_msg: String,
+    ) -> Result<(), InternalRpcError>;
     async fn dm_history(
         &self,
         peer: Handle,
