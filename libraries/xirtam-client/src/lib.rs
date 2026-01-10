@@ -7,6 +7,7 @@ mod gateway;
 mod identity;
 mod internal;
 mod main_loop;
+mod medium_keys;
 mod peer;
 
 use std::sync::mpsc::Sender;

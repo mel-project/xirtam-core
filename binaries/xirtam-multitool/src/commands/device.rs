@@ -12,7 +12,7 @@ use xirtam_structs::{
     certificate::{CertificateChain, DeviceCertificate, DeviceSecret},
     gateway::{AuthToken, GatewayClient, MailboxId, MailboxRecvArgs},
     handle::Handle,
-    timestamp::Timestamp,
+    timestamp::{NanoTimestamp, Timestamp},
 };
 
 use crate::shared::{GlobalArgs, build_dir_client, print_json};
@@ -206,7 +206,7 @@ pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
                 .await?
                 .map_err(|err| anyhow::anyhow!(err.to_string()))?;
             let mailbox = MailboxId::direct(&handle);
-            let mut after = xirtam_structs::timestamp::NanoTimestamp(0);
+            let mut after = NanoTimestamp(0);
             loop {
                 let args = vec![MailboxRecvArgs {
                     auth,

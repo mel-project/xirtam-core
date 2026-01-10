@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::BTreeMap;
 
 use anyhow::Context;
@@ -29,7 +27,7 @@ const DM_RECV_TIMEOUT_MIN_MS: u64 = 15_000;
 const DM_RECV_TIMEOUT_MAX_MS: u64 = 30 * 60 * 1000;
 const DM_RECV_TIMEOUT_STEP_MS: u64 = 5_000;
 
-pub async fn send_loop(ctx: &anyctx::AnyCtx<Config>) -> anyhow::Result<()> {
+pub async fn send_loop(ctx: &anyctx::AnyCtx<Config>) {
     loop {
         if let Err(err) = send_loop_once(ctx).await {
             tracing::error!(error = %err, "dm send loop error");
@@ -37,7 +35,7 @@ pub async fn send_loop(ctx: &anyctx::AnyCtx<Config>) -> anyhow::Result<()> {
     }
 }
 
-pub async fn recv_loop(ctx: &anyctx::AnyCtx<Config>) -> anyhow::Result<()> {
+pub async fn recv_loop(ctx: &anyctx::AnyCtx<Config>) {
     loop {
         if let Err(err) = recv_loop_once(ctx).await {
             tracing::error!(error = %err, "dm recv loop error");
