@@ -78,6 +78,10 @@ impl Widget for Convo<'_> {
                 };
                 let mut after = last_received_id.and_then(|id| id.checked_add(1));
                 let mut fetched = Vec::new();
+                if last_received_id.is_none() {
+                    scroller.lock().reload();
+                    return;
+                }
                 loop {
                     let result = rpc_for_effect
                         .dm_history(peer_for_effect.clone(), None, after, 200)
