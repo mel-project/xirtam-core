@@ -19,6 +19,7 @@ use std::sync::Arc;
 use crate::XirtamApp;
 use crate::promises::flatten_rpc;
 use crate::utils::color::handle_color;
+use crate::utils::markdown::layout_md_raw;
 
 pub struct Convo<'a>(pub &'a mut XirtamApp, pub Handle);
 
@@ -115,7 +116,7 @@ impl Widget for Convo<'_> {
                         let rpc = self.0.client.rpc();
                         tokio::spawn(async move {
                             let _ = flatten_rpc(
-                                rpc.dm_send(peer, SmolStr::new("text/plain"), body).await,
+                                rpc.dm_send(peer, SmolStr::new("text/markdown"), body).await,
                             );
                         });
                         draft.clear();
@@ -161,14 +162,39 @@ impl Widget for Convo<'_> {
                                 ..Default::default()
                             },
                         );
-                        job.append(
-                            &String::from_utf8_lossy(&item.body),
-                            0.0,
-                            TextFormat {
-                                color: Color32::BLACK,
-                                ..Default::default()
-                            },
-                        );
+                        match item.mime.as_str() {
+                            "text/plain" => {
+                                job.append(
+                                    &String::from_utf8_lossy(&item.body),
+                                    0.0,
+                                    TextFormat {
+                                        color: Color32::BLACK,
+                                        ..Default::default()
+                                    },
+                                );
+                            }
+                            "text/markdown" => {
+                                layout_md_raw(
+                                    &mut job,
+                                    TextFormat {
+                                        color: Color32::BLACK,
+                                        ..Default::default()
+                                    },
+                                    &String::from_utf8_lossy(&item.body),
+                                );
+                            }
+                            other => {
+                                job.append(
+                                    &format!("unknown mime {other}"),
+                                    0.0,
+                                    TextFormat {
+                                        color: Color32::RED,
+                                        ..Default::default()
+                                    },
+                                );
+                            }
+                        }
+
                         ui.label(job);
                     });
                 });

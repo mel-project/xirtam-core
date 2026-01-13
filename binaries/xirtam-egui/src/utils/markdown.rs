@@ -5,6 +5,11 @@ use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 pub fn layout_md(ui: &Ui, input: &str) -> LayoutJob {
     let mut job = LayoutJob::default();
     let base_format = default_format(ui);
+    layout_md_raw(&mut job, base_format, input);
+    job
+}
+
+pub fn layout_md_raw(job: &mut LayoutJob, base_format: TextFormat, input: &str) {
     let mut format_stack = vec![base_format.clone()];
     let mut pending_newline = false;
 
@@ -12,16 +17,25 @@ pub fn layout_md(ui: &Ui, input: &str) -> LayoutJob {
         match event {
             Event::Text(text) => {
                 if pending_newline {
-                    let fmt = format_stack.last().cloned().unwrap_or_else(|| base_format.clone());
+                    let fmt = format_stack
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| base_format.clone());
                     job.append("\n", 0.0, fmt);
                     pending_newline = false;
                 }
-                let fmt = format_stack.last().cloned().unwrap_or_else(|| base_format.clone());
+                let fmt = format_stack
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| base_format.clone());
                 job.append(&text, 0.0, fmt);
             }
             Event::Code(text) => {
                 if pending_newline {
-                    let fmt = format_stack.last().cloned().unwrap_or_else(|| base_format.clone());
+                    let fmt = format_stack
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| base_format.clone());
                     job.append("\n", 0.0, fmt);
                     pending_newline = false;
                 }
@@ -33,7 +47,10 @@ pub fn layout_md(ui: &Ui, input: &str) -> LayoutJob {
                 job.append(&text, 0.0, fmt);
             }
             Event::SoftBreak | Event::HardBreak => {
-                let fmt = format_stack.last().cloned().unwrap_or_else(|| base_format.clone());
+                let fmt = format_stack
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| base_format.clone());
                 job.append("\n", 0.0, fmt);
             }
             Event::Start(tag) => match tag {
@@ -82,7 +99,10 @@ pub fn layout_md(ui: &Ui, input: &str) -> LayoutJob {
                     format_stack.push(fmt);
                 }
                 Tag::Item => {
-                    let fmt = format_stack.last().cloned().unwrap_or_else(|| base_format.clone());
+                    let fmt = format_stack
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| base_format.clone());
                     job.append("- ", 0.0, fmt);
                 }
                 Tag::List(_) | Tag::BlockQuote(_) | Tag::Link { .. } => {}
@@ -99,7 +119,10 @@ pub fn layout_md(ui: &Ui, input: &str) -> LayoutJob {
                 _ => {}
             },
             Event::Rule => {
-                let fmt = format_stack.last().cloned().unwrap_or_else(|| base_format.clone());
+                let fmt = format_stack
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| base_format.clone());
                 job.append("\n", 0.0, fmt);
             }
             Event::Html(_)
@@ -110,8 +133,6 @@ pub fn layout_md(ui: &Ui, input: &str) -> LayoutJob {
             | Event::DisplayMath(_) => {}
         }
     }
-
-    job
 }
 
 fn default_format(ui: &Ui) -> TextFormat {
