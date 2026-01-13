@@ -13,7 +13,7 @@ use crate::directory::DIR_CLIENT;
 use crate::gateway::get_gateway_client;
 use crate::identity::Identity;
 
-const MEDIUM_ROTATE_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const MEDIUM_ROTATE_INTERVAL: Duration = Duration::from_secs(60);
 
 pub async fn rotation_loop(ctx: &AnyCtx<Config>) {
     loop {
@@ -44,10 +44,6 @@ async fn rotate_once(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         signature: xirtam_crypt::signing::Signature::from_bytes([0u8; 64]),
     };
     signed.sign(&identity.device_secret);
-    gateway
-        .v1_device_add_medium_pk(auth, signed)
-        .await?
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
     sqlx::query(
         "UPDATE client_identity \
          SET medium_sk_prev = ?, medium_sk_current = ? \
@@ -57,5 +53,10 @@ async fn rotate_once(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     .bind(bcs::to_bytes(&new_sk)?)
     .execute(db)
     .await?;
+    gateway
+        .v1_device_add_medium_pk(auth, signed)
+        .await?
+        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    tracing::debug!("medium-term key successfully rotated!");
     Ok(())
 }
