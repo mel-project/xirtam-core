@@ -1,11 +1,10 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
 use eframe::egui::{self, Modal, Spinner};
-use notify_rust::Notification;
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{self, Receiver},
@@ -13,13 +12,14 @@ use tokio::{
 use url::Url;
 use xirtam_client::{
     Client, Config,
-    internal::{DmDirection, Event},
+    internal::Event,
 };
 use xirtam_crypt::signing::SigningPublic;
 
-use crate::promises::flatten_rpc;
 use crate::utils::prefs::PrefData;
+use crate::events::event_loop;
 
+mod events;
 mod promises;
 mod screens;
 mod utils;
@@ -190,7 +190,7 @@ impl eframe::App for XirtamApp {
         });
         if self.state.prefs != self.state.last_saved_prefs {
             if let Err(err) = save_prefs(&self.prefs_path, &self.state.prefs) {
-                eprintln!("failed to save prefs: {err}");
+                tracing::warn!(error = %err, "failed to save prefs");
             } else {
                 self.state.last_saved_prefs = self.state.prefs.clone();
             }
@@ -222,53 +222,7 @@ fn main() -> eframe::Result<()> {
     let rpc = client.rpc();
     let (event_tx, event_rx) = mpsc::channel(64);
     let focused = Arc::new(AtomicBool::new(true));
-    let focused_task = focused.clone();
-    runtime.spawn(async move {
-        let mut max_notified = 0;
-        loop {
-            // tokio::time::sleep(Duration::from_secs(1)).await;
-            match rpc.next_event().await {
-                Ok(event) => {
-                    if let Event::DmUpdated { peer } = &event
-                        && !focused_task.load(Ordering::Relaxed) {
-                            match flatten_rpc(rpc.dm_history(peer.clone(), None, None, 1).await) {
-                                Ok(messages) => {
-                                    if let Some(message) = messages.last()
-                                        && matches!(message.direction, DmDirection::Incoming)
-                                            && message.received_at.unwrap_or_default().0
-                                                > max_notified
-                                        {
-                                            max_notified =
-                                                message.received_at.unwrap_or_default().0;
-                                            let body =
-                                                String::from_utf8_lossy(&message.body).to_string();
-                                            if let Err(err) = Notification::new()
-                                                .summary(&format!(
-                                                    "Message from {}",
-                                                    message.sender
-                                                ))
-                                                .body(&body)
-                                                .show()
-                                            {
-                                                eprintln!("notification error: {err}");
-                                            }
-                                        }
-                                }
-                                Err(err) => {
-                                    eprintln!("failed to fetch latest message: {err}");
-                                }
-                            }
-                        }
-                    if event_tx.send(event).await.is_err() {
-                        break;
-                    }
-                }
-                Err(err) => {
-                    eprintln!("event loop error: {err}");
-                }
-            }
-        }
-    });
+    runtime.spawn(event_loop(rpc, event_tx, focused.clone()));
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "xirtam-egui",
@@ -287,7 +241,7 @@ fn default_db_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."));
     let dir = base_dir.join("xirtam");
     if let Err(err) = std::fs::create_dir_all(&dir) {
-        eprintln!("failed to create config dir: {err}");
+        tracing::warn!(error = %err, "failed to create config dir");
     }
     dir.join("xirtam-client.db")
 }
@@ -298,7 +252,7 @@ fn default_prefs_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."));
     let dir = base_dir.join("xirtam");
     if let Err(err) = std::fs::create_dir_all(&dir) {
-        eprintln!("failed to create config dir: {err}");
+        tracing::warn!(error = %err, "failed to create config dir");
     }
     dir.join("xirtam-egui.json")
 }
