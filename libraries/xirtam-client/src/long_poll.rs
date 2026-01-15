@@ -8,7 +8,7 @@ use dashmap::DashMap;
 use futures_concurrency::future::Race;
 use tokio::sync::oneshot;
 use xirtam_structs::server::{
-    AuthToken, ServerClient, ServerError, MailboxEntry, MailboxId, MailboxRecvArgs,
+    AuthToken, ServerClient, ServerRpcError, MailboxEntry, MailboxId, MailboxRecvArgs,
 };
 use xirtam_structs::timestamp::NanoTimestamp;
 
@@ -145,7 +145,7 @@ async fn run_server_worker(server: Arc<ServerClient>, receiver: Receiver<PollReq
 enum WorkerEvent {
     NewRequest(PollRequest),
     PollResponse(
-        Result<Result<BTreeMap<MailboxId, Vec<MailboxEntry>>, ServerError>, anyhow::Error>,
+        Result<Result<BTreeMap<MailboxId, Vec<MailboxEntry>>, ServerRpcError>, anyhow::Error>,
     ),
     Shutdown,
 }
@@ -183,7 +183,7 @@ fn build_args(
 
 async fn username_poll_response(
     response: Result<
-        Result<BTreeMap<MailboxId, Vec<MailboxEntry>>, ServerError>,
+        Result<BTreeMap<MailboxId, Vec<MailboxEntry>>, ServerRpcError>,
         anyhow::Error,
     >,
     mailbox_keys: &HashMap<(MailboxId, AuthToken), Vec<usize>>,

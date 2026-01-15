@@ -4,7 +4,7 @@ use xirtam_crypt::dh::DhPublic;
 use xirtam_crypt::hash::{BcsHashExt, Hash};
 use xirtam_crypt::signing::Signable;
 use xirtam_structs::certificate::CertificateChain;
-use xirtam_structs::server::{AuthToken, ServerError, SignedMediumPk};
+use xirtam_structs::server::{AuthToken, ServerRpcError, SignedMediumPk};
 use xirtam_structs::username::UserName;
 
 use crate::config::CONFIG;
@@ -16,12 +16,12 @@ use crate::mailbox;
 pub async fn device_auth(
     username: UserName,
     cert: CertificateChain,
-) -> Result<AuthToken, ServerError> {
+) -> Result<AuthToken, ServerRpcError> {
     let device = match cert.last_device() {
         Some(device) => device,
         None => {
             tracing::debug!(username = %username, "device auth denied: empty certificate chain");
-            return Err(ServerError::AccessDenied);
+            return Err(ServerRpcError::AccessDenied);
         }
     };
     let device_hash = device.pk.bcs_hash();
@@ -32,7 +32,7 @@ pub async fn device_auth(
         .map_err(fatal_retry_later)?;
     let Some(descriptor) = descriptor else {
         tracing::debug!(username = %username, "device auth denied: username not in directory");
-        return Err(ServerError::AccessDenied);
+        return Err(ServerRpcError::AccessDenied);
     };
     if descriptor.server_name != CONFIG.server_name {
         tracing::debug!(
@@ -41,12 +41,12 @@ pub async fn device_auth(
             actual = %descriptor.server_name,
             "device auth denied: username server mismatch"
         );
-        return Err(ServerError::AccessDenied);
+        return Err(ServerRpcError::AccessDenied);
     }
 
     if cert.verify(descriptor.root_cert_hash).is_err() {
         tracing::debug!(username = %username, "device auth denied: certificate chain invalid");
-        return Err(ServerError::AccessDenied);
+        return Err(ServerRpcError::AccessDenied);
     }
 
     let mut tx = DATABASE.begin().await.map_err(fatal_retry_later)?;
@@ -78,7 +78,7 @@ pub async fn device_auth(
     let merged = existing_chain.merge(&cert);
     if merged.verify(descriptor.root_cert_hash).is_err() {
         tracing::debug!(username = %username, "device auth denied: merged chain invalid");
-        return Err(ServerError::AccessDenied);
+        return Err(ServerRpcError::AccessDenied);
     }
     let data = bcs::to_bytes(&merged).map_err(fatal_retry_later)?;
     sqlx::query("INSERT OR REPLACE INTO device_certificates (username, cert_chain) VALUES (?, ?)")
@@ -115,7 +115,7 @@ pub async fn device_auth(
     Ok(auth_token)
 }
 
-pub async fn device_list(username: UserName) -> Result<Option<CertificateChain>, ServerError> {
+pub async fn device_list(username: UserName) -> Result<Option<CertificateChain>, ServerRpcError> {
     let data = sqlx::query_scalar::<_, Vec<u8>>(
         "SELECT cert_chain FROM device_certificates WHERE username = ?",
     )
@@ -133,7 +133,7 @@ pub async fn device_list(username: UserName) -> Result<Option<CertificateChain>,
 pub async fn device_add_medium_pk(
     auth: AuthToken,
     medium_pk: SignedMediumPk,
-) -> Result<(), ServerError> {
+) -> Result<(), ServerRpcError> {
     let auth_bytes = bcs::to_bytes(&auth).map_err(fatal_retry_later)?;
     let row = sqlx::query_as::<_, (Vec<u8>, String)>(
         "SELECT device_hash, username FROM device_auth_tokens WHERE auth_token = ?",
@@ -143,7 +143,7 @@ pub async fn device_add_medium_pk(
     .await
     .map_err(fatal_retry_later)?;
     let Some((device_hash, username)) = row else {
-        return Err(ServerError::AccessDenied);
+        return Err(ServerRpcError::AccessDenied);
     };
     let chain_bytes = sqlx::query_scalar::<_, Vec<u8>>(
         "SELECT cert_chain FROM device_certificates WHERE username = ?",
@@ -153,7 +153,7 @@ pub async fn device_add_medium_pk(
     .await
     .map_err(fatal_retry_later)?;
     let Some(chain_bytes) = chain_bytes else {
-        return Err(ServerError::AccessDenied);
+        return Err(ServerRpcError::AccessDenied);
     };
     let chain: CertificateChain = bcs::from_bytes(&chain_bytes).map_err(fatal_retry_later)?;
     let device_hash_obj = bytes_to_hash(&device_hash)?;
@@ -161,10 +161,10 @@ pub async fn device_add_medium_pk(
         .0
         .iter()
         .find(|cert| cert.pk.bcs_hash() == device_hash_obj)
-        .ok_or(ServerError::AccessDenied)?;
+        .ok_or(ServerRpcError::AccessDenied)?;
     medium_pk
         .verify(device.pk.signing_public())
-        .map_err(|_| ServerError::AccessDenied)?;
+        .map_err(|_| ServerRpcError::AccessDenied)?;
     let created = i64::try_from(medium_pk.created.0)
         .map_err(|_| fatal_retry_later("invalid created timestamp"))?;
     sqlx::query(
@@ -183,7 +183,7 @@ pub async fn device_add_medium_pk(
 
 pub async fn device_medium_pks(
     username: UserName,
-) -> Result<BTreeMap<Hash, SignedMediumPk>, ServerError> {
+) -> Result<BTreeMap<Hash, SignedMediumPk>, ServerRpcError> {
     let rows = sqlx::query_as::<_, (Vec<u8>, Vec<u8>, i64, Vec<u8>)>(
         "SELECT t.device_hash, t.medium_pk, t.created, t.signature \
          FROM device_medium_pks t \
@@ -213,14 +213,14 @@ pub async fn device_medium_pks(
     Ok(out)
 }
 
-fn bytes_to_hash(bytes: &[u8]) -> Result<Hash, ServerError> {
+fn bytes_to_hash(bytes: &[u8]) -> Result<Hash, ServerRpcError> {
     let buf: [u8; 32] = bytes
         .try_into()
         .map_err(|_| fatal_retry_later("invalid device hash length"))?;
     Ok(Hash::from_bytes(buf))
 }
 
-fn bytes_to_pk(bytes: &[u8]) -> Result<DhPublic, ServerError> {
+fn bytes_to_pk(bytes: &[u8]) -> Result<DhPublic, ServerRpcError> {
     let buf: [u8; 32] = bytes
         .try_into()
         .map_err(|_| fatal_retry_later("invalid medium pk length"))?;
@@ -229,7 +229,7 @@ fn bytes_to_pk(bytes: &[u8]) -> Result<DhPublic, ServerError> {
 
 fn bytes_to_signature(
     bytes: &[u8],
-) -> Result<xirtam_crypt::signing::Signature, ServerError> {
+) -> Result<xirtam_crypt::signing::Signature, ServerRpcError> {
     let buf: [u8; 64] = bytes
         .try_into()
         .map_err(|_| fatal_retry_later("invalid signature length"))?;
@@ -238,7 +238,7 @@ fn bytes_to_signature(
 
 fn created_to_timestamp(
     created: i64,
-) -> Result<xirtam_structs::timestamp::Timestamp, ServerError> {
+) -> Result<xirtam_structs::timestamp::Timestamp, ServerRpcError> {
     let created =
         u64::try_from(created).map_err(|_| fatal_retry_later("invalid created timestamp"))?;
     Ok(xirtam_structs::timestamp::Timestamp(created))

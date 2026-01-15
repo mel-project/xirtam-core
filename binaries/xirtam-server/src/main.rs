@@ -13,7 +13,7 @@ use axum::{Router, routing::post};
 use futures_concurrency::future::Race;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
-use xirtam_structs::server::{ServerError, ServerService};
+use xirtam_structs::server::{ServerRpcError, ServerService};
 
 use crate::config::CONFIG;
 use crate::rpc::ServerRpc;
@@ -55,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn fatal_retry_later(e: impl Display) -> ServerError {
+fn fatal_retry_later(e: impl Display) -> ServerRpcError {
     tracing::error!("fatal error: {e}");
-    ServerError::RetryLater
+    ServerRpcError::RetryLater
 }

@@ -28,26 +28,26 @@ pub trait ServerProtocol {
         &self,
         username: UserName,
         cert: CertificateChain,
-    ) -> Result<AuthToken, ServerError>;
+    ) -> Result<AuthToken, ServerRpcError>;
 
     /// Retrieve the devices for a given username.
     async fn v1_device_certs(
         &self,
         username: UserName,
-    ) -> Result<Option<CertificateChain>, ServerError>;
+    ) -> Result<Option<CertificateChain>, ServerRpcError>;
 
     /// Retrieve the medium-term keys for a given username.
     async fn v1_device_medium_pks(
         &self,
         username: UserName,
-    ) -> Result<BTreeMap<Hash, SignedMediumPk>, ServerError>;
+    ) -> Result<BTreeMap<Hash, SignedMediumPk>, ServerRpcError>;
 
     /// Store a device's medium-term public key.
     async fn v1_device_add_medium_pk(
         &self,
         auth: AuthToken,
         medium_pk: SignedMediumPk,
-    ) -> Result<(), ServerError>;
+    ) -> Result<(), ServerRpcError>;
 
     /// Send a message into a mailbox.
     async fn v1_mailbox_send(
@@ -55,14 +55,14 @@ pub trait ServerProtocol {
         auth: AuthToken,
         mailbox: MailboxId,
         message: Blob,
-    ) -> Result<NanoTimestamp, ServerError>;
+    ) -> Result<NanoTimestamp, ServerRpcError>;
 
     /// Receive one or more messages, from one or many mailboxes. This is batched to make long-polling more efficient. The server may choose to limit the number of messages in the response, so clients should be prepared to repeat until getting an empty "page".
     async fn v1_mailbox_multirecv(
         &self,
         args: Vec<MailboxRecvArgs>,
         timeout_ms: u64,
-    ) -> Result<BTreeMap<MailboxId, Vec<MailboxEntry>>, ServerError>;
+    ) -> Result<BTreeMap<MailboxId, Vec<MailboxEntry>>, ServerRpcError>;
 
     /// Edit the mailbox ACL.
     async fn v1_mailbox_acl_edit(
@@ -70,14 +70,14 @@ pub trait ServerProtocol {
         auth: AuthToken,
         mailbox: MailboxId,
         arg: MailboxAcl,
-    ) -> Result<(), ServerError>;
+    ) -> Result<(), ServerRpcError>;
 
     /// Create group mailboxes and grant the caller full ACL rights.
     async fn v1_register_group(
         &self,
         auth: AuthToken,
         group: GroupId,
-    ) -> Result<(), ServerError>;
+    ) -> Result<(), ServerRpcError>;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -254,7 +254,7 @@ impl AuthToken {
 /// An error from the server.
 #[derive(Error, Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ServerError {
+pub enum ServerRpcError {
     #[error("access denied")]
     AccessDenied,
     #[error("rate limited, retry later")]

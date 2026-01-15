@@ -8,7 +8,7 @@ use bytes::Bytes;
 use nanorpc::{JrpcRequest, RpcService};
 use xirtam_structs::certificate::CertificateChain;
 use xirtam_structs::server::{
-    AuthToken, ServerProtocol, ServerError, ServerService, MailboxAcl, MailboxEntry,
+    AuthToken, ServerProtocol, ServerRpcError, ServerService, MailboxAcl, MailboxEntry,
     MailboxId, MailboxRecvArgs, SignedMediumPk,
 };
 use xirtam_structs::{Blob, username::UserName, timestamp::NanoTimestamp};
@@ -41,14 +41,14 @@ impl ServerProtocol for ServerRpc {
         &self,
         username: UserName,
         cert: CertificateChain,
-    ) -> Result<AuthToken, ServerError> {
+    ) -> Result<AuthToken, ServerRpcError> {
         device::device_auth(username, cert).await
     }
 
     async fn v1_device_certs(
         &self,
         username: UserName,
-    ) -> Result<Option<CertificateChain>, ServerError> {
+    ) -> Result<Option<CertificateChain>, ServerRpcError> {
         device::device_list(username).await
     }
 
@@ -57,14 +57,14 @@ impl ServerProtocol for ServerRpc {
         auth: AuthToken,
         mailbox_id: MailboxId,
         message: Blob,
-    ) -> Result<NanoTimestamp, ServerError> {
+    ) -> Result<NanoTimestamp, ServerRpcError> {
         mailbox::mailbox_send(auth, mailbox_id, message).await
     }
 
     async fn v1_device_medium_pks(
         &self,
         username: UserName,
-    ) -> Result<BTreeMap<xirtam_crypt::hash::Hash, SignedMediumPk>, ServerError> {
+    ) -> Result<BTreeMap<xirtam_crypt::hash::Hash, SignedMediumPk>, ServerRpcError> {
         device::device_medium_pks(username).await
     }
 
@@ -72,7 +72,7 @@ impl ServerProtocol for ServerRpc {
         &self,
         auth: AuthToken,
         medium_pk: SignedMediumPk,
-    ) -> Result<(), ServerError> {
+    ) -> Result<(), ServerRpcError> {
         device::device_add_medium_pk(auth, medium_pk).await
     }
 
@@ -80,7 +80,7 @@ impl ServerProtocol for ServerRpc {
         &self,
         args: Vec<MailboxRecvArgs>,
         timeout_ms: u64,
-    ) -> Result<BTreeMap<MailboxId, Vec<MailboxEntry>>, ServerError> {
+    ) -> Result<BTreeMap<MailboxId, Vec<MailboxEntry>>, ServerRpcError> {
         mailbox::mailbox_multirecv(args, timeout_ms).await
     }
 
@@ -89,7 +89,7 @@ impl ServerProtocol for ServerRpc {
         auth: AuthToken,
         mailbox_id: MailboxId,
         arg: MailboxAcl,
-    ) -> Result<(), ServerError> {
+    ) -> Result<(), ServerRpcError> {
         mailbox::mailbox_acl_edit(auth, mailbox_id, arg).await
     }
 
@@ -97,7 +97,7 @@ impl ServerProtocol for ServerRpc {
         &self,
         auth: AuthToken,
         group: xirtam_structs::group::GroupId,
-    ) -> Result<(), ServerError> {
+    ) -> Result<(), ServerRpcError> {
         mailbox::register_group(auth, group).await
     }
 }
