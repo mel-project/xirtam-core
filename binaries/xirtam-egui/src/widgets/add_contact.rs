@@ -1,7 +1,9 @@
+use bytes::Bytes;
 use eframe::egui::{Button, Modal, Response, Spinner, TextEdit, Widget};
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
 use poll_promise::Promise;
+use xirtam_client::internal::ConvoId;
 use xirtam_structs::username::UserName;
 
 use crate::XirtamApp;
@@ -50,9 +52,15 @@ impl Widget for AddContact<'_> {
                             }
                         };
                         let init_msg = message_str.clone();
+                        let convo_id = ConvoId::Direct { peer: username };
                         let rpc = self.app.client.rpc();
+                        let body = Bytes::from(init_msg);
                         let promise = Promise::spawn_async(async move {
-                            flatten_rpc(rpc.add_contact(username, init_msg).await)
+                            flatten_rpc(
+                                rpc.convo_send(convo_id, "text/plain".into(), body)
+                                    .await,
+                            )
+                            .map(|_| ())
                         });
                         add_contact.start(promise);
                     }

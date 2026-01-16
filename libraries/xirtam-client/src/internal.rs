@@ -19,16 +19,13 @@ use xirtam_structs::server::{AuthToken, ServerClient, ServerName, SignedMediumPk
 use xirtam_structs::group::GroupId;
 use xirtam_structs::username::{UserDescriptor, UserName};
 use xirtam_structs::timestamp::{NanoTimestamp, Timestamp};
-use std::collections::BTreeMap;
 
-use crate::Config;
+use crate::config::Config;
+pub use crate::convo::{ConvoId, ConvoMessage, ConvoSummary};
+use crate::convo::{parse_convo_id, accept_invite, create_group, invite, load_group, queue_message, GroupRoster};
 use crate::database::{DATABASE, DbNotify, identity_exists};
 use crate::directory::DIR_CLIENT;
-use crate::dm::queue_dm;
 use crate::server::get_server_client;
-use crate::groups::{
-    accept_invite, create_group, invite, load_group, queue_group_message, GroupRoster,
-};
 use crate::identity::Identity;
 
 /// The internal JSON-RPC interface exposed by xirtam-client.
@@ -46,53 +43,34 @@ pub trait InternalProtocol {
         can_issue: bool,
         expiry: Timestamp,
     ) -> Result<NewDeviceBundle, InternalRpcError>;
-    async fn dm_send(
+    async fn convo_list(&self) -> Result<Vec<ConvoSummary>, InternalRpcError>;
+    async fn convo_history(
         &self,
-        peer: UserName,
-        mime: SmolStr,
-        body: Bytes,
-    ) -> Result<i64, InternalRpcError>;
-    async fn group_create(&self, server: ServerName) -> Result<GroupId, InternalRpcError>;
-    async fn own_server(&self) -> Result<ServerName, InternalRpcError>;
-    async fn group_invite(&self, group: GroupId, username: UserName) -> Result<(), InternalRpcError>;
-    async fn group_send(
-        &self,
-        group: GroupId,
-        mime: SmolStr,
-        body: Bytes,
-    ) -> Result<i64, InternalRpcError>;
-    async fn group_history(
-        &self,
-        group: GroupId,
+        convo_id: ConvoId,
         before: Option<i64>,
         after: Option<i64>,
         limit: u16,
-    ) -> Result<Vec<GroupMessage>, InternalRpcError>;
-    async fn group_list(&self) -> Result<Vec<GroupId>, InternalRpcError>;
+    ) -> Result<Vec<ConvoMessage>, InternalRpcError>;
+    async fn convo_send(
+        &self,
+        convo_id: ConvoId,
+        mime: SmolStr,
+        body: Bytes,
+    ) -> Result<i64, InternalRpcError>;
+    async fn convo_create_group(&self, server: ServerName) -> Result<ConvoId, InternalRpcError>;
+    async fn own_server(&self) -> Result<ServerName, InternalRpcError>;
+    async fn group_invite(&self, group: GroupId, username: UserName) -> Result<(), InternalRpcError>;
     async fn group_members(
         &self,
         group: GroupId,
     ) -> Result<Vec<GroupMember>, InternalRpcError>;
     async fn group_accept_invite(&self, dm_id: i64) -> Result<GroupId, InternalRpcError>;
-    async fn add_contact(
-        &self,
-        username: UserName,
-        init_msg: String,
-    ) -> Result<(), InternalRpcError>;
-    async fn dm_history(
-        &self,
-        peer: UserName,
-        before: Option<i64>,
-        after: Option<i64>,
-        limit: u16,
-    ) -> Result<Vec<DmMessage>, InternalRpcError>;
-    async fn all_peers(&self) -> Result<BTreeMap<UserName, DmMessage>, InternalRpcError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {
     State { logged_in: bool },
-    DmUpdated { peer: UserName },
+    ConvoUpdated { convo_id: ConvoId },
     GroupUpdated { group: GroupId },
 }
 
@@ -119,34 +97,6 @@ pub struct NewDeviceBundle(
     #[serde_as(as = "IfIsHumanReadable<Base64<UrlSafe, Unpadded>, FromInto<Vec<u8>>>")]
     pub Bytes,
 );
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DmMessage {
-    pub id: i64,
-    pub peer: UserName,
-    pub sender: UserName,
-    pub direction: DmDirection,
-    pub mime: SmolStr,
-    pub body: Bytes,
-    pub received_at: Option<NanoTimestamp>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum DmDirection {
-    Incoming,
-    Outgoing,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct GroupMessage {
-    pub id: i64,
-    pub group: GroupId,
-    pub sender: UserName,
-    pub direction: DmDirection,
-    pub mime: SmolStr,
-    pub body: Bytes,
-    pub received_at: Option<NanoTimestamp>,
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GroupMember {
@@ -267,9 +217,27 @@ impl InternalProtocol for InternalImpl {
         Ok(NewDeviceBundle(Bytes::from(encoded)))
     }
 
-    async fn dm_send(
+    async fn convo_list(&self) -> Result<Vec<ConvoSummary>, InternalRpcError> {
+        let db = self.ctx.get(DATABASE);
+        convo_list(db).await.map_err(internal_err)
+    }
+
+    async fn convo_history(
         &self,
-        peer: UserName,
+        convo_id: ConvoId,
+        before: Option<i64>,
+        after: Option<i64>,
+        limit: u16,
+    ) -> Result<Vec<ConvoMessage>, InternalRpcError> {
+        let db = self.ctx.get(DATABASE);
+        convo_history(db, convo_id, before, after, limit)
+            .await
+            .map_err(internal_err)
+    }
+
+    async fn convo_send(
+        &self,
+        convo_id: ConvoId,
         mime: smol_str::SmolStr,
         body: Bytes,
     ) -> Result<i64, InternalRpcError> {
@@ -277,19 +245,22 @@ impl InternalProtocol for InternalImpl {
         let identity = Identity::load(db)
             .await
             .map_err(|_| InternalRpcError::NotReady)?;
-        let id = queue_dm(db, &identity.username, &peer, &mime, &body)
+        let mut tx = db.begin().await.map_err(internal_err)?;
+        let id = queue_message(&mut tx, &convo_id, &identity.username, &mime, &body)
             .await
             .map_err(internal_err)?;
+        tx.commit().await.map_err(internal_err)?;
         DbNotify::touch();
         Ok(id)
     }
 
-    async fn group_create(&self, server: ServerName) -> Result<GroupId, InternalRpcError> {
+    async fn convo_create_group(&self, server: ServerName) -> Result<ConvoId, InternalRpcError> {
         let db = self.ctx.get(DATABASE);
         if !identity_exists(db).await.map_err(internal_err)? {
             return Err(InternalRpcError::NotReady);
         }
-        create_group(&self.ctx, server).await.map_err(internal_err)
+        let group_id = create_group(&self.ctx, server).await.map_err(internal_err)?;
+        Ok(ConvoId::Group { group_id })
     }
 
     async fn own_server(&self) -> Result<ServerName, InternalRpcError> {
@@ -306,91 +277,6 @@ impl InternalProtocol for InternalImpl {
             return Err(InternalRpcError::NotReady);
         }
         invite(&self.ctx, group, username).await.map_err(internal_err)
-    }
-
-    async fn group_send(
-        &self,
-        group: GroupId,
-        mime: smol_str::SmolStr,
-        body: Bytes,
-    ) -> Result<i64, InternalRpcError> {
-        let db = self.ctx.get(DATABASE);
-        let identity = Identity::load(db)
-            .await
-            .map_err(|_| InternalRpcError::NotReady)?;
-        let id = queue_group_message(db, &group, &identity.username, &mime, &body)
-            .await
-            .map_err(internal_err)?;
-        DbNotify::touch();
-        Ok(id)
-    }
-
-    async fn group_history(
-        &self,
-        group: GroupId,
-        before: Option<i64>,
-        after: Option<i64>,
-        limit: u16,
-    ) -> Result<Vec<GroupMessage>, InternalRpcError> {
-        let db = self.ctx.get(DATABASE);
-        let identity = Identity::load(db)
-            .await
-            .map_err(|_| InternalRpcError::NotReady)?;
-        let before = before.unwrap_or(i64::MAX);
-        let after = after.unwrap_or(i64::MIN);
-        let mut rows = sqlx::query_as::<_, (i64, String, String, Vec<u8>, Option<i64>)>(
-            "SELECT id, sender_username, mime, body, received_at \
-             FROM group_messages \
-             WHERE group_id = ? AND id <= ? AND id >= ? \
-             ORDER BY id DESC \
-             LIMIT ?",
-        )
-        .bind(group.as_bytes().to_vec())
-        .bind(before)
-        .bind(after)
-        .bind(limit as i64)
-        .fetch_all(db)
-        .await
-        .map_err(internal_err)?;
-        rows.reverse();
-        let mut out = Vec::with_capacity(rows.len());
-        for (id, sender_username, mime, body, received_at) in rows {
-            let sender = UserName::parse(sender_username).map_err(internal_err)?;
-            let direction = if sender == identity.username {
-                DmDirection::Outgoing
-            } else {
-                DmDirection::Incoming
-            };
-            out.push(GroupMessage {
-                id,
-                group,
-                sender,
-                direction,
-                mime: smol_str::SmolStr::new(mime),
-                body: Bytes::from(body),
-                received_at: received_at.map(|ts| NanoTimestamp(ts as u64)),
-            });
-        }
-        Ok(out)
-    }
-
-    async fn group_list(&self) -> Result<Vec<GroupId>, InternalRpcError> {
-        let db = self.ctx.get(DATABASE);
-        if !identity_exists(db).await.map_err(internal_err)? {
-            return Err(InternalRpcError::NotReady);
-        }
-        let rows = sqlx::query_as::<_, (Vec<u8>,)>("SELECT group_id FROM groups ORDER BY group_id")
-            .fetch_all(db)
-            .await
-            .map_err(internal_err)?;
-        let mut out = Vec::with_capacity(rows.len());
-        for (group_id,) in rows {
-            let group = <[u8; 32]>::try_from(group_id.as_slice())
-                .map(GroupId::from_bytes)
-                .map_err(internal_err)?;
-            out.push(group);
-        }
-        Ok(out)
     }
 
     async fn group_members(&self, group: GroupId) -> Result<Vec<GroupMember>, InternalRpcError> {
@@ -425,126 +311,17 @@ impl InternalProtocol for InternalImpl {
         if !identity_exists(db).await.map_err(internal_err)? {
             return Err(InternalRpcError::NotReady);
         }
-        accept_invite(&self.ctx, dm_id).await.map_err(internal_err)
-    }
-
-    async fn add_contact(&self, username: UserName, init_msg: String) -> Result<(), InternalRpcError> {
-        let dir = self.ctx.get(DIR_CLIENT);
-        if dir
-            .get_user_descriptor(&username)
-            .await
-            .map_err(internal_err)?
-            .is_none()
-        {
-            return Err(InternalRpcError::Other("username not found".into()));
-        }
-        self.dm_send(username, SmolStr::new("text/plain"), Bytes::from(init_msg))
-            .await
-            .map(|_| ())
-    }
-
-    async fn dm_history(
-        &self,
-        peer: UserName,
-        before: Option<i64>,
-        after: Option<i64>,
-        limit: u16,
-    ) -> Result<Vec<DmMessage>, InternalRpcError> {
-        let db = self.ctx.get(DATABASE);
-        let identity = Identity::load(db)
-            .await
-            .map_err(|_| InternalRpcError::NotReady)?;
-        let before = before.unwrap_or(i64::MAX);
-        let after = after.unwrap_or(i64::MIN);
-        let mut rows = sqlx::query_as::<_, (i64, String, String, Vec<u8>, Option<i64>)>(
-            "SELECT id, sender_username, mime, body, received_at \
-             FROM dm_messages \
-             WHERE peer_username = ? AND id <= ? AND id >= ? \
-             ORDER BY id DESC \
-             LIMIT ?",
-        )
-        .bind(peer.as_str())
-        .bind(before)
-        .bind(after)
-        .bind(limit as i64)
-        .fetch_all(db)
-        .await
-        .map_err(internal_err)?;
-        rows.reverse();
-        let mut out = Vec::with_capacity(rows.len());
-        for (id, sender_username, mime, body, received_at) in rows {
-            let sender = UserName::parse(sender_username).map_err(internal_err)?;
-            let direction = if sender == identity.username {
-                DmDirection::Outgoing
-            } else {
-                DmDirection::Incoming
-            };
-            out.push(DmMessage {
-                id,
-                peer: peer.clone(),
-                sender,
-                direction,
-                mime: smol_str::SmolStr::new(mime),
-                body: Bytes::from(body),
-                received_at: received_at.map(|ts| NanoTimestamp(ts as u64)),
-            });
-        }
-        Ok(out)
-    }
-
-    async fn all_peers(&self) -> Result<BTreeMap<UserName, DmMessage>, InternalRpcError> {
-        let db = self.ctx.get(DATABASE);
-        let identity = Identity::load(db)
-            .await
-            .map_err(|_| InternalRpcError::NotReady)?;
-        let rows = sqlx::query_as::<_, (i64, String, String, String, Vec<u8>, Option<i64>)>(
-            "SELECT id, peer_username, sender_username, mime, body, received_at \
-             FROM dm_messages \
-             ORDER BY id DESC",
-        )
-        .fetch_all(db)
-        .await
-        .map_err(internal_err)?;
-        let mut out = BTreeMap::new();
-        for (id, peer_username, sender_username, mime, body, received_at) in rows {
-            let peer = UserName::parse(peer_username).map_err(internal_err)?;
-            if out.contains_key(&peer) {
-                continue;
+        tracing::debug!(invite_id = dm_id, "group_accept_invite called");
+        let result = accept_invite(&self.ctx, dm_id).await;
+        match &result {
+            Ok(group_id) => {
+                tracing::debug!(invite_id = dm_id, group_id = %group_id, "group_accept_invite ok");
             }
-            let sender = UserName::parse(sender_username).map_err(internal_err)?;
-            let direction = if sender == identity.username {
-                DmDirection::Outgoing
-            } else {
-                DmDirection::Incoming
-            };
-            out.insert(
-                peer.clone(),
-                DmMessage {
-                    id,
-                    peer,
-                    sender,
-                    direction,
-                    mime: smol_str::SmolStr::new(mime),
-                    body: Bytes::from(body),
-                    received_at: received_at.map(|ts| NanoTimestamp(ts as u64)),
-                },
-            );
+            Err(err) => {
+                tracing::warn!(invite_id = dm_id, error = %err, "group_accept_invite failed");
+            }
         }
-        if !out.contains_key(&identity.username) {
-            out.insert(
-                identity.username.clone(),
-                DmMessage {
-                    id: 0,
-                    peer: identity.username.clone(),
-                    sender: identity.username,
-                    direction: DmDirection::Outgoing,
-                    mime: smol_str::SmolStr::new(""),
-                    body: Bytes::new(),
-                    received_at: None,
-                },
-            );
-        }
-        Ok(out)
+        result.map_err(internal_err)
     }
 }
 
@@ -562,6 +339,7 @@ async fn register_bootstrap(
     {
         return Err(InternalRpcError::Other("username already exists".into()));
     }
+    let server = server_from_name(&ctx, &server_name).await?;
     let device_secret = DeviceSecret::random();
     let root_cert = device_secret.self_signed(Timestamp(u64::MAX), true);
     let cert_chain = CertificateChain(vec![root_cert.clone()]);
@@ -579,8 +357,6 @@ async fn register_bootstrap(
     dir.insert_user_descriptor(&username, &user_descriptor, &device_secret)
         .await
         .map_err(internal_err)?;
-
-    let server = server_from_name(&ctx, &server_name).await?;
     let auth = device_auth(&server, &username, &cert_chain).await?;
     let medium_sk = register_medium_key(&server, auth, &device_secret).await?;
 
@@ -710,4 +486,85 @@ struct BundleInner {
 
 fn internal_err(err: impl std::fmt::Display) -> InternalRpcError {
     InternalRpcError::Other(err.to_string())
+}
+
+async fn convo_list(db: &sqlx::SqlitePool) -> anyhow::Result<Vec<ConvoSummary>> {
+    let rows = sqlx::query_as::<_, (String, String, i64, Option<i64>, Option<String>, Option<String>, Option<Vec<u8>>, Option<i64>, Option<String>)>(
+        "SELECT c.convo_type, c.convo_counterparty, c.created_at, \
+                m.id, m.sender_username, m.mime, m.body, m.received_at, m.send_error \
+         FROM convos c \
+         LEFT JOIN convo_messages m \
+           ON m.id = (SELECT MAX(id) FROM convo_messages WHERE convo_id = c.id) \
+         ORDER BY COALESCE(m.received_at, c.created_at) DESC, c.id DESC",
+    )
+    .fetch_all(db)
+    .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for (convo_type, counterparty, _created_at, msg_id, sender_username, mime, body, received_at, send_error) in rows {
+        let convo_id = parse_convo_id(&convo_type, &counterparty)
+            .ok_or_else(|| anyhow::anyhow!("invalid convo row"))?;
+        let last_message = match (msg_id, sender_username, mime, body) {
+            (Some(id), Some(sender_username), Some(mime), Some(body)) => {
+                let sender = UserName::parse(sender_username)?;
+                Some(ConvoMessage {
+                    id,
+                    convo_id: convo_id.clone(),
+                    sender,
+                    mime: smol_str::SmolStr::new(mime),
+                    body: Bytes::from(body),
+                    send_error,
+                    received_at: received_at.map(|ts| NanoTimestamp(ts as u64)),
+                })
+            }
+            _ => None,
+        };
+        out.push(ConvoSummary {
+            convo_id,
+            last_message,
+        });
+    }
+    Ok(out)
+}
+
+async fn convo_history(
+    db: &sqlx::SqlitePool,
+    convo_id: ConvoId,
+    before: Option<i64>,
+    after: Option<i64>,
+    limit: u16,
+) -> anyhow::Result<Vec<ConvoMessage>> {
+    let before = before.unwrap_or(i64::MAX);
+    let after = after.unwrap_or(i64::MIN);
+    let convo_type = convo_id.convo_type();
+    let counterparty = convo_id.counterparty();
+    let mut rows = sqlx::query_as::<_, (i64, String, String, Vec<u8>, Option<i64>, Option<String>)>(
+        "SELECT m.id, m.sender_username, m.mime, m.body, m.received_at, m.send_error \
+         FROM convo_messages m \
+         JOIN convos c ON m.convo_id = c.id \
+         WHERE c.convo_type = ? AND c.convo_counterparty = ? AND m.id <= ? AND m.id >= ? \
+         ORDER BY m.id DESC \
+         LIMIT ?",
+    )
+    .bind(convo_type)
+    .bind(counterparty)
+    .bind(before)
+    .bind(after)
+    .bind(limit as i64)
+    .fetch_all(db)
+    .await?;
+    rows.reverse();
+    let mut out = Vec::with_capacity(rows.len());
+    for (id, sender_username, mime, body, received_at, send_error) in rows {
+        let sender = UserName::parse(sender_username)?;
+        out.push(ConvoMessage {
+            id,
+            convo_id: convo_id.clone(),
+            sender,
+            mime: smol_str::SmolStr::new(mime),
+            body: Bytes::from(body),
+            send_error,
+            received_at: received_at.map(|ts| NanoTimestamp(ts as u64)),
+        });
+    }
+    Ok(out)
 }

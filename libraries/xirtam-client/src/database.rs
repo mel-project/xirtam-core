@@ -3,14 +3,14 @@ use std::time::Duration;
 use anyctx::AnyCtx;
 use async_channel::Sender as AsyncSender;
 use futures_concurrency::future::Race;
-use sqlx::SqlitePool;
+use sqlx::{Executor, Sqlite, SqlitePool};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use xirtam_structs::server::MailboxId;
 use xirtam_structs::group::GroupId;
-use xirtam_structs::username::UserName;
 use xirtam_structs::timestamp::NanoTimestamp;
 
 use crate::Config;
+use crate::convo::parse_convo_id;
 use crate::config::Ctx;
 use crate::internal::Event;
 use std::collections::{HashMap, HashSet};
@@ -113,54 +113,36 @@ async fn message_event_loop(ctx: &AnyCtx<Config>, event_tx: AsyncSender<Event>) 
     let mut notify = DbNotify::new();
     let mut last_seen_id = current_max_msg(db).await.unwrap_or(0);
     let mut last_seen_received_at = current_max_received_at(db).await.unwrap_or(0);
-    let mut last_seen_group_id = current_max_group_msg(db).await.unwrap_or(0);
-    let mut last_seen_group_received_at = current_max_group_received_at(db).await.unwrap_or(0);
     let mut group_versions = load_group_versions(db).await.unwrap_or_default();
     loop {
         notify.wait_for_change().await;
-        let (new_last, mut peers) = match new_message_peers(db, last_seen_id).await {
+        let (new_last, mut convos) = match new_message_convos(db, last_seen_id).await {
             Ok(result) => result,
             Err(err) => {
-                tracing::warn!(error = %err, "failed to query dm messages");
+                tracing::warn!(error = %err, "failed to query convo messages");
                 continue;
             }
         };
         last_seen_id = new_last;
-        let (new_received_at, received_peers) =
-            match new_received_peers(db, last_seen_received_at).await {
+        let (new_received_at, received_convos) =
+            match new_received_convos(db, last_seen_received_at).await {
                 Ok(result) => result,
                 Err(err) => {
-                    tracing::warn!(error = %err, "failed to query dm received_at updates");
+                    tracing::warn!(error = %err, "failed to query convo received_at updates");
                     continue;
                 }
             };
         last_seen_received_at = new_received_at;
-        peers.extend(received_peers);
-        for peer in peers {
-            if event_tx.send(Event::DmUpdated { peer }).await.is_err() {
+        convos.extend(received_convos);
+        for convo_id in convos {
+            if event_tx
+                .send(Event::ConvoUpdated { convo_id })
+                .await
+                .is_err()
+            {
                 return;
             }
         }
-
-        let (new_group_last, mut groups) = match new_group_message_ids(db, last_seen_group_id).await
-        {
-            Ok(result) => result,
-            Err(err) => {
-                tracing::warn!(error = %err, "failed to query group messages");
-                continue;
-            }
-        };
-        last_seen_group_id = new_group_last;
-        let (new_group_received, received_groups) =
-            match new_group_received_ids(db, last_seen_group_received_at).await {
-                Ok(result) => result,
-                Err(err) => {
-                    tracing::warn!(error = %err, "failed to query group received_at updates");
-                    continue;
-                }
-            };
-        last_seen_group_received_at = new_group_received;
-        groups.extend(received_groups);
         let (next_versions, roster_groups) = match updated_group_versions(db, &group_versions).await
         {
             Ok(result) => result,
@@ -170,8 +152,7 @@ async fn message_event_loop(ctx: &AnyCtx<Config>, event_tx: AsyncSender<Event>) 
             }
         };
         group_versions = next_versions;
-        groups.extend(roster_groups);
-        for group in groups {
+        for group in roster_groups {
             if event_tx.send(Event::GroupUpdated { group }).await.is_err() {
                 return;
             }
@@ -187,7 +168,7 @@ pub async fn identity_exists(db: &sqlx::SqlitePool) -> anyhow::Result<bool> {
 }
 
 async fn current_max_msg(db: &sqlx::SqlitePool) -> anyhow::Result<i64> {
-    let row = sqlx::query_as::<_, (Option<i64>,)>("SELECT MAX(id) FROM dm_messages")
+    let row = sqlx::query_as::<_, (Option<i64>,)>("SELECT MAX(id) FROM convo_messages")
         .fetch_one(db)
         .await?;
     Ok(row.0.unwrap_or(0))
@@ -195,19 +176,23 @@ async fn current_max_msg(db: &sqlx::SqlitePool) -> anyhow::Result<i64> {
 
 async fn current_max_received_at(db: &sqlx::SqlitePool) -> anyhow::Result<i64> {
     let row = sqlx::query_as::<_, (Option<i64>,)>(
-        "SELECT MAX(received_at) FROM dm_messages WHERE received_at IS NOT NULL",
+        "SELECT MAX(received_at) FROM convo_messages WHERE received_at IS NOT NULL",
     )
     .fetch_one(db)
     .await?;
     Ok(row.0.unwrap_or(0))
 }
 
-async fn new_message_peers(
+async fn new_message_convos(
     db: &sqlx::SqlitePool,
     last_seen_id: i64,
-) -> anyhow::Result<(i64, Vec<UserName>)> {
-    let rows = sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, peer_username FROM dm_messages WHERE id > ? ORDER BY id",
+) -> anyhow::Result<(i64, Vec<crate::convo::ConvoId>)> {
+    let rows = sqlx::query_as::<_, (i64, String, String)>(
+        "SELECT m.id, c.convo_type, c.convo_counterparty \
+         FROM convo_messages m \
+         JOIN convos c ON m.convo_id = c.id \
+         WHERE m.id > ? \
+         ORDER BY m.id",
     )
     .bind(last_seen_id)
     .fetch_all(db)
@@ -215,25 +200,27 @@ async fn new_message_peers(
     if rows.is_empty() {
         return Ok((last_seen_id, Vec::new()));
     }
-    let mut peers = HashSet::new();
+    let mut convos = HashSet::new();
     let mut max_id = last_seen_id;
-    for (id, peer_username) in rows {
+    for (id, convo_type, counterparty) in rows {
         max_id = max_id.max(id);
-        if let Ok(peer) = UserName::parse(peer_username) {
-            peers.insert(peer);
+        if let Some(convo_id) = parse_convo_id(&convo_type, &counterparty) {
+            convos.insert(convo_id);
         }
     }
-    Ok((max_id, peers.into_iter().collect()))
+    Ok((max_id, convos.into_iter().collect()))
 }
 
-async fn new_received_peers(
+async fn new_received_convos(
     db: &sqlx::SqlitePool,
     last_seen_received_at: i64,
-) -> anyhow::Result<(i64, Vec<UserName>)> {
-    let rows = sqlx::query_as::<_, (i64, String)>(
-        "SELECT received_at, peer_username FROM dm_messages \
-         WHERE received_at IS NOT NULL AND received_at > ? \
-         ORDER BY received_at",
+) -> anyhow::Result<(i64, Vec<crate::convo::ConvoId>)> {
+    let rows = sqlx::query_as::<_, (i64, String, String)>(
+        "SELECT m.received_at, c.convo_type, c.convo_counterparty \
+         FROM convo_messages m \
+         JOIN convos c ON m.convo_id = c.id \
+         WHERE m.received_at IS NOT NULL AND m.received_at > ? \
+         ORDER BY m.received_at",
     )
     .bind(last_seen_received_at)
     .fetch_all(db)
@@ -241,85 +228,15 @@ async fn new_received_peers(
     if rows.is_empty() {
         return Ok((last_seen_received_at, Vec::new()));
     }
-    let mut peers = HashSet::new();
+    let mut convos = HashSet::new();
     let mut max_received_at = last_seen_received_at;
-    for (received_at, peer_username) in rows {
+    for (received_at, convo_type, counterparty) in rows {
         max_received_at = max_received_at.max(received_at);
-        if let Ok(peer) = UserName::parse(peer_username) {
-            peers.insert(peer);
+        if let Some(convo_id) = parse_convo_id(&convo_type, &counterparty) {
+            convos.insert(convo_id);
         }
     }
-    Ok((max_received_at, peers.into_iter().collect()))
-}
-
-async fn current_max_group_msg(db: &sqlx::SqlitePool) -> anyhow::Result<i64> {
-    let row = sqlx::query_as::<_, (Option<i64>,)>("SELECT MAX(id) FROM group_messages")
-        .fetch_one(db)
-        .await?;
-    Ok(row.0.unwrap_or(0))
-}
-
-async fn current_max_group_received_at(db: &sqlx::SqlitePool) -> anyhow::Result<i64> {
-    let row = sqlx::query_as::<_, (Option<i64>,)>(
-        "SELECT MAX(received_at) FROM group_messages WHERE received_at IS NOT NULL",
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(row.0.unwrap_or(0))
-}
-
-async fn new_group_message_ids(
-    db: &sqlx::SqlitePool,
-    last_seen_id: i64,
-) -> anyhow::Result<(i64, Vec<GroupId>)> {
-    let rows = sqlx::query_as::<_, (i64, Vec<u8>)>(
-        "SELECT id, group_id FROM group_messages WHERE id > ? ORDER BY id",
-    )
-    .bind(last_seen_id)
-    .fetch_all(db)
-    .await?;
-    if rows.is_empty() {
-        return Ok((last_seen_id, Vec::new()));
-    }
-    let mut groups = HashSet::new();
-    let mut max_id = last_seen_id;
-    for (id, group_id) in rows {
-        max_id = max_id.max(id);
-        let Ok(group_id) = <[u8; 32]>::try_from(group_id.as_slice()).map(GroupId::from_bytes)
-        else {
-            continue;
-        };
-        groups.insert(group_id);
-    }
-    Ok((max_id, groups.into_iter().collect()))
-}
-
-async fn new_group_received_ids(
-    db: &sqlx::SqlitePool,
-    last_seen_received_at: i64,
-) -> anyhow::Result<(i64, Vec<GroupId>)> {
-    let rows = sqlx::query_as::<_, (i64, Vec<u8>)>(
-        "SELECT received_at, group_id FROM group_messages \
-         WHERE received_at IS NOT NULL AND received_at > ? \
-         ORDER BY received_at",
-    )
-    .bind(last_seen_received_at)
-    .fetch_all(db)
-    .await?;
-    if rows.is_empty() {
-        return Ok((last_seen_received_at, Vec::new()));
-    }
-    let mut groups = HashSet::new();
-    let mut max_received_at = last_seen_received_at;
-    for (received_at, group_id) in rows {
-        max_received_at = max_received_at.max(received_at);
-        let Ok(group_id) = <[u8; 32]>::try_from(group_id.as_slice()).map(GroupId::from_bytes)
-        else {
-            continue;
-        };
-        groups.insert(group_id);
-    }
-    Ok((max_received_at, groups.into_iter().collect()))
+    Ok((max_received_at, convos.into_iter().collect()))
 }
 
 async fn load_group_versions(db: &sqlx::SqlitePool) -> anyhow::Result<HashMap<GroupId, i64>> {
@@ -355,12 +272,15 @@ async fn updated_group_versions(
     Ok((current, updated))
 }
 
-pub async fn ensure_mailbox_state(
-    db: &sqlx::SqlitePool,
+pub async fn ensure_mailbox_state<'e, E>(
+    exec: E,
     server_name: &xirtam_structs::server::ServerName,
     mailbox: MailboxId,
     initial_after: NanoTimestamp,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>
+where
+    E: Executor<'e, Database = Sqlite>,
+{
     sqlx::query(
         "INSERT OR IGNORE INTO mailbox_state (server_name, mailbox_id, after_timestamp) \
          VALUES (?, ?, ?)",
@@ -368,35 +288,41 @@ pub async fn ensure_mailbox_state(
     .bind(server_name.as_str())
     .bind(mailbox.to_bytes().to_vec())
     .bind(initial_after.0 as i64)
-    .execute(db)
+    .execute(exec)
     .await?;
     Ok(())
 }
 
-pub async fn load_mailbox_after(
-    db: &sqlx::SqlitePool,
+pub async fn load_mailbox_after<'e, E>(
+    exec: E,
     server_name: &xirtam_structs::server::ServerName,
     mailbox: MailboxId,
-) -> anyhow::Result<NanoTimestamp> {
+) -> anyhow::Result<NanoTimestamp>
+where
+    E: Executor<'e, Database = Sqlite>,
+{
     let row = sqlx::query_as::<_, (i64,)>(
         "SELECT after_timestamp FROM mailbox_state \
          WHERE server_name = ? AND mailbox_id = ?",
     )
     .bind(server_name.as_str())
     .bind(mailbox.to_bytes().to_vec())
-    .fetch_optional(db)
+    .fetch_optional(exec)
     .await?;
     Ok(row
         .map(|(after,)| NanoTimestamp(after as u64))
         .unwrap_or(NanoTimestamp(0)))
 }
 
-pub async fn update_mailbox_after(
-    db: &sqlx::SqlitePool,
+pub async fn update_mailbox_after<'e, E>(
+    exec: E,
     server_name: &xirtam_structs::server::ServerName,
     mailbox: MailboxId,
     after: NanoTimestamp,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>
+where
+    E: Executor<'e, Database = Sqlite>,
+{
     sqlx::query(
         "UPDATE mailbox_state SET after_timestamp = ? \
          WHERE server_name = ? AND mailbox_id = ?",
@@ -404,7 +330,31 @@ pub async fn update_mailbox_after(
     .bind(after.0 as i64)
     .bind(server_name.as_str())
     .bind(mailbox.to_bytes().to_vec())
-    .execute(db)
+    .execute(exec)
     .await?;
     Ok(())
+}
+
+pub async fn ensure_convo_id<'e, E>(
+    exec: E,
+    convo_type: &str,
+    counterparty: &str,
+) -> anyhow::Result<i64>
+where
+    E: Executor<'e, Database = Sqlite>,
+{
+    let created_at = NanoTimestamp::now().0 as i64;
+    let row = sqlx::query_as::<_, (i64,)>(
+        "INSERT INTO convos (convo_type, convo_counterparty, created_at) \
+         VALUES (?, ?, ?) \
+         ON CONFLICT(convo_type, convo_counterparty) DO UPDATE \
+         SET convo_type = excluded.convo_type \
+         RETURNING id",
+    )
+    .bind(convo_type)
+    .bind(counterparty)
+    .bind(created_at)
+    .fetch_one(exec)
+    .await?;
+    Ok(row.0)
 }

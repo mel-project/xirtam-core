@@ -11,8 +11,14 @@ The GUI calls the internal JSON-RPC methods on a local `Client` instance:
 - `register_start(username) -> Option<RegisterStartInfo>`
 - `register_finish(RegisterFinish) -> Result<()>`
 - `new_device_bundle(can_issue, expiry) -> NewDeviceBundle`
-- `dm_send(peer, mime, body) -> message_id`
-- `dm_history(peer, before, after, limit) -> [DmMessage]`
+- `convo_list() -> [ConvoSummary]`
+- `convo_history(convo_id, before, after, limit) -> [ConvoMessage]`
+- `convo_send(convo_id, mime, body) -> message_id`
+- `convo_create_group(server) -> ConvoId`
+- `group_invite(group, username) -> Result<()>`
+- `group_members(group) -> [GroupMember]`
+- `group_accept_invite(dm_id) -> GroupId`
+- `own_server() -> ServerName`
 - `next_event() -> Event` (infallible, long-polling)
 
 `next_event()` is the only push-style API. It blocks until the next event arrives.
@@ -23,7 +29,7 @@ Events are emitted only by the internal event loop in response to DB changes.
 The client is a single process with structured concurrency:
 
 - An RPC loop serving GUI requests.
-- An event loop that watches the DB and emits `Event::State` + `Event::DmUpdated`.
+- An event loop that watches the DB and emits `Event::State` + `Event::ConvoUpdated` + `Event::GroupUpdated`.
 - A worker loop that starts send/recv + key rotation after login.
 
 All three loops are raced together, and they all share the same `AnyCtx`.
@@ -96,14 +102,15 @@ sequenceDiagram
   Client2-->>GUI2: ok
 ```
 
-## DM flow
+## Convo flow
 
-DM sending and receiving are fully automated:
+Direct messages and group messages share a unified convo API:
 
-- `dm_send(peer, mime, body)` inserts into `dm_messages` with `received_at = NULL`.
-- `send_loop` sees pending rows and sends encrypted envelopes to the server.
-- `recv_loop` long-polls the mailbox, decrypts, verifies, and inserts new rows.
-- The event loop emits `Event::DmUpdated { peer }` for new rows.
+- `convo_send(convo_id, mime, body)` inserts into `convo_messages` with `received_at = NULL`.
+- The send loops look for pending rows (`received_at = NULL`, `send_error IS NULL`) and send encrypted payloads.
+- On send failures, the client records `send_error` and sets a synthetic `received_at` to stop retries.
+- The recv loops long-poll mailboxes, decrypt, verify, and insert new rows.
+- The event loop emits `Event::ConvoUpdated { convo_id }` for new rows.
 
 ```mermaid
 sequenceDiagram
@@ -112,12 +119,12 @@ sequenceDiagram
   participant DB
   participant GW as server
 
-  GUI->>Client: dm_send(@bob, "text/plain", "hi")
-  Client->>DB: insert pending dm
+  GUI->>Client: convo_send(ConvoId::Direct(@bob), "text/plain", "hi")
+  Client->>DB: insert pending convo message
   Client-->>GUI: message_id
   Client->>GW: mailbox_send(encrypted envelope)
   Client->>DB: update received_at
-  Client-->>GUI: next_event() -> DmUpdated { @bob }
+  Client-->>GUI: next_event() -> ConvoUpdated { convo_id }
 ```
 
 ## Key rotation (internal)
@@ -128,7 +135,10 @@ late messages can be decrypted. These keys are never exposed to the UI.
 ## Data model (sqlite)
 
 - `client_identity`: one row holding identity + key material (including cached server name).
-- `dm_messages`: plaintext history (incoming + outgoing).
+- `convos`: conversation registry (direct + group), allows empty convos.
+- `convo_messages`: plaintext history for both direct and group conversations, with optional `send_error`.
+- `groups`: group descriptors + keys + tokens.
+- `group_members`: roster entries (for crypto and membership enforcement).
 - `mailbox_state`: mailbox cursor for long-polling.
 
 ## Event semantics
@@ -136,7 +146,8 @@ late messages can be decrypted. These keys are never exposed to the UI.
 Events are derived from the DB:
 
 - `Event::State { logged_in }` whenever identity appears/disappears.
-- `Event::DmUpdated { peer }` whenever new rows appear for a peer.
+- `Event::ConvoUpdated { convo_id }` whenever new convo rows appear.
+- `Event::GroupUpdated { group }` whenever roster state changes.
 
 No other component emits events directly; all producers simply update the DB and
 call `DbNotify::touch()`.
@@ -145,5 +156,5 @@ call `DbNotify::touch()`.
 
 - Treat the client as a local service. All heavy lifting is internal.
 - `next_event()` is the main driver; call it in a long-polling loop.
-- For message display, call `dm_history(peer, before, after, limit)` with
+- For message display, call `convo_history(convo_id, before, after, limit)` with
   `before = None` to load latest messages, then page backward by `before = id`.

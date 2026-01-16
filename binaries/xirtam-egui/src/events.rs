@@ -5,7 +5,7 @@ use notify_rust::Notification;
 use rodio::{Decoder, OutputStreamBuilder, Sink};
 use std::sync::mpsc::{Receiver, Sender as StdSender};
 use tokio::sync::mpsc::Sender as TokioSender;
-use xirtam_client::internal::{DmDirection, Event, InternalClient};
+use xirtam_client::internal::{ConvoId, Event, InternalClient};
 
 use crate::promises::flatten_rpc;
 
@@ -22,29 +22,33 @@ pub async fn event_loop(
     loop {
         match rpc.next_event().await {
             Ok(event) => {
-                if let Event::DmUpdated { peer } = &event
+                if let Event::ConvoUpdated { convo_id } = &event
                     && !focused_task.load(Ordering::Relaxed)
                 {
-                    match flatten_rpc(rpc.dm_history(peer.clone(), None, None, 1).await) {
-                        Ok(messages) => {
-                            if let Some(message) = messages.last()
-                                && matches!(message.direction, DmDirection::Incoming)
-                                && message.received_at.unwrap_or_default().0 > max_notified
-                            {
-                                max_notified = message.received_at.unwrap_or_default().0;
-                                let body = String::from_utf8_lossy(&message.body).to_string();
-                                if let Err(err) = Notification::new()
-                                    .summary(&format!("Message from {}", message.sender))
-                                    .body(&body)
-                                    .show()
+                    if let ConvoId::Direct { peer } = convo_id {
+                        match flatten_rpc(
+                            rpc.convo_history(convo_id.clone(), None, None, 1).await,
+                        ) {
+                            Ok(messages) => {
+                                if let Some(message) = messages.last()
+                                    && message.sender == *peer
+                                    && message.received_at.unwrap_or_default().0 > max_notified
                                 {
-                                    tracing::warn!(error = %err, "notification error");
+                                    max_notified = message.received_at.unwrap_or_default().0;
+                                    let body = String::from_utf8_lossy(&message.body).to_string();
+                                    if let Err(err) = Notification::new()
+                                        .summary(&format!("Message from {}", message.sender))
+                                        .body(&body)
+                                        .show()
+                                    {
+                                        tracing::warn!(error = %err, "notification error");
+                                    }
+                                    play_sound(&audio_tx, NOTIFICATION_SOUND);
                                 }
-                                play_sound(&audio_tx, NOTIFICATION_SOUND);
                             }
-                        }
-                        Err(err) => {
-                            tracing::warn!(error = %err, "failed to fetch latest message");
+                            Err(err) => {
+                                tracing::warn!(error = %err, "failed to fetch latest message");
+                            }
                         }
                     }
                 }

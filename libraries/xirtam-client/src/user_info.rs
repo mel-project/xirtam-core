@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::directory::DIR_CLIENT;
 use crate::server::get_server_client;
 
-pub struct PeerInfo {
+pub struct UserInfo {
     pub username: UserName,
     pub server: Arc<ServerClient>,
     pub server_name: ServerName,
@@ -21,17 +21,17 @@ pub struct PeerInfo {
     pub medium_pks: BTreeMap<xirtam_crypt::hash::Hash, SignedMediumPk>,
 }
 
-static PEER_CACHE: LazyLock<Cache<UserName, Arc<PeerInfo>>> = LazyLock::new(|| {
+static USER_CACHE: LazyLock<Cache<UserName, Arc<UserInfo>>> = LazyLock::new(|| {
     Cache::builder()
         .time_to_live(Duration::from_secs(60))
         .build()
 });
 
-pub async fn get_peer_info(
+pub async fn get_user_info(
     ctx: &anyctx::AnyCtx<Config>,
     username: &UserName,
-) -> anyhow::Result<Arc<PeerInfo>> {
-    PEER_CACHE
+) -> anyhow::Result<Arc<UserInfo>> {
+    USER_CACHE
         .try_get_with(username.clone(), async {
             let start = Instant::now();
             let dir = ctx.get(DIR_CLIENT);
@@ -50,7 +50,7 @@ pub async fn get_peer_info(
                 .verify(descriptor.root_cert_hash)
                 .map_err(|err| anyhow::anyhow!(err.to_string()))?;
             tracing::debug!(username=%username, elapsed=debug(start.elapsed()), "refreshed peer info");
-            Ok(Arc::new(PeerInfo {
+            Ok(Arc::new(UserInfo {
                 username: username.clone(),
                 server,
                 server_name: descriptor.server_name.clone(),
@@ -62,7 +62,10 @@ pub async fn get_peer_info(
         .map_err(|err: Arc<anyhow::Error>| anyhow::anyhow!(err.to_string()))
 }
 
-async fn fetch_chain(server: &ServerClient, username: &UserName) -> anyhow::Result<CertificateChain> {
+async fn fetch_chain(
+    server: &ServerClient,
+    username: &UserName,
+) -> anyhow::Result<CertificateChain> {
     server
         .v1_device_certs(username.clone())
         .await?

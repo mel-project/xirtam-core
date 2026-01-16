@@ -7,11 +7,11 @@ use tokio::sync::oneshot;
 
 use crate::Config;
 use crate::database::{DATABASE, DbNotify, event_loop, identity_exists};
-use crate::dm::{recv_loop, send_loop};
-use crate::groups::{group_recv_loop, group_rekey_loop, group_send_loop};
+
+use crate::convo::convo_loop;
 
 use crate::internal::InternalImpl;
-use crate::medium_keys::rotation_loop;
+use crate::medium_keys::medium_key_loop;
 
 pub async fn main_loop(
     cfg: Config,
@@ -63,14 +63,5 @@ async fn worker_loop(ctx: &AnyCtx<Config>) {
         }
         notify.wait_for_change().await;
     }
-    (
-        send_loop(ctx),
-        recv_loop(ctx),
-        rotation_loop(ctx),
-        group_send_loop(ctx),
-        group_recv_loop(ctx),
-        group_rekey_loop(ctx),
-    )
-        .race()
-        .await;
+    (convo_loop(ctx), medium_key_loop(ctx)).race().await;
 }

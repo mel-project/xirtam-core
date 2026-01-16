@@ -48,7 +48,7 @@ impl Widget for AddGroup<'_> {
                         });
                         let rpc = self.app.client.rpc();
                         let promise = Promise::spawn_async(async move {
-                            flatten_rpc(rpc.group_create(server).await)
+                            flatten_rpc(rpc.convo_create_group(server).await)
                         });
                         create_group.start(promise);
                     }

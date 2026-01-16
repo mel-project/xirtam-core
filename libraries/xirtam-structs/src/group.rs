@@ -1,21 +1,31 @@
 use bytes::Bytes;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
 use thiserror::Error;
-use xirtam_crypt::{aead::AeadKey, hash::Hash, signing::Signature};
+use xirtam_crypt::{
+    aead::AeadKey,
+    hash::{Hash, HashParseError},
+    signing::Signature,
+};
 
 use crate::{
-    certificate::{CertificateChain, DeviceSecret},
-    server::{AuthToken, ServerName},
-    username::UserName,
-    msg_content::MessagePayload,
-    timestamp::Timestamp,
     Blob,
+    certificate::{CertificateChain, DeviceSecret},
+    msg_content::MessagePayload,
+    server::{AuthToken, ServerName},
+    timestamp::{NanoTimestamp, Timestamp},
+    username::UserName,
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 #[serde(transparent)]
 pub struct GroupId(Hash);
+
+#[derive(Debug, Error)]
+#[error("invalid group id")]
+pub struct GroupIdParseError;
 
 /// A group descriptor. Describes a group as it exists on a particular server.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -33,6 +43,7 @@ pub struct GroupInviteMsg {
     pub descriptor: GroupDescriptor,
     pub group_key: AeadKey,
     pub token: AuthToken,
+    pub created_at: NanoTimestamp,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -71,6 +82,21 @@ impl GroupId {
 
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(Hash::from_bytes(bytes))
+    }
+}
+
+impl fmt::Display for GroupId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for GroupId {
+    type Err = GroupIdParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let hash = Hash::from_str(s).map_err(|_err: HashParseError| GroupIdParseError)?;
+        Ok(Self(hash))
     }
 }
 
@@ -140,7 +166,11 @@ impl SignedGroupMessage {
     }
 }
 
-fn signed_bytes(group: &GroupId, sender: &UserName, message: &Blob) -> Result<Vec<u8>, GroupMessageError> {
+fn signed_bytes(
+    group: &GroupId,
+    sender: &UserName,
+    message: &Blob,
+) -> Result<Vec<u8>, GroupMessageError> {
     bcs::to_bytes(&(group, sender, message)).map_err(|_| GroupMessageError::Encode)
 }
 

@@ -24,7 +24,7 @@ mod utils;
 mod widgets;
 
 const DEFAULT_DIR_ENDPOINT: &str = "https://xirtam-test-directory.nullfruit.net/";
-const DEFAULT_DIR_ANCHOR_PK: &str = "M7nRvqmTOKOyF2HxhjdVxAKUIqANb4jXa5EKZ2UFD8I";
+const DEFAULT_DIR_ANCHOR_PK: &str = "bpOJ5ga-oQjb0njgBV5CtEZIVU6wjvltXjsQ_10BNlM";
 
 #[derive(Debug, Parser)]
 #[command(name = "xirtam-egui", about = "Minimal xirtam GUI client")]
@@ -153,8 +153,8 @@ impl eframe::App for XirtamApp {
             tracing::debug!(event = ?event, "processing xirtam event");
             match event {
                 Event::State { logged_in } => self.state.logged_in = Some(logged_in),
-                Event::DmUpdated { peer } => {
-                    let _ = peer;
+                Event::ConvoUpdated { convo_id } => {
+                    let _ = convo_id;
                     self.state.update_count = self.state.update_count.saturating_add(1);
                 }
                 Event::GroupUpdated { group } => {
@@ -243,7 +243,7 @@ fn default_db_path() -> PathBuf {
     let base_dir = dirs::config_dir()
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
-    let dir = base_dir.join("xirtam");
+    let dir = base_dir.join("xirtam-egui");
     if let Err(err) = std::fs::create_dir_all(&dir) {
         tracing::warn!(error = %err, "failed to create config dir");
     }
@@ -254,7 +254,7 @@ fn default_prefs_path() -> PathBuf {
     let base_dir = dirs::config_dir()
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
-    let dir = base_dir.join("xirtam");
+    let dir = base_dir.join("xirtam-egui");
     if let Err(err) = std::fs::create_dir_all(&dir) {
         tracing::warn!(error = %err, "failed to create config dir");
     }

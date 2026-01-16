@@ -2,10 +2,8 @@ use eframe::egui::{Response, ViewportCommand, Widget};
 use egui::{Align, Button, Layout};
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
-use xirtam_structs::group::GroupId;
-use xirtam_structs::username::UserName;
+use xirtam_client::internal::{ConvoId, ConvoSummary};
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::XirtamApp;
@@ -13,7 +11,7 @@ use crate::promises::flatten_rpc;
 use crate::widgets::add_contact::AddContact;
 use crate::widgets::add_device::AddDevice;
 use crate::widgets::add_group::AddGroup;
-use crate::widgets::convo::{ChatSelection, Convo};
+use crate::widgets::convo::Convo;
 use crate::widgets::preferences::Preferences;
 
 pub struct SteadyState<'a>(pub &'a mut XirtamApp);
@@ -21,22 +19,14 @@ pub struct SteadyState<'a>(pub &'a mut XirtamApp);
 impl Widget for SteadyState<'_> {
     fn ui(mut self, ui: &mut eframe::egui::Ui) -> Response {
         let rpc = Arc::new(self.0.client.rpc());
-        let mut selected_chat: Var<Option<ChatSelection>> =
-            ui.use_state(|| None, ()).into_var();
+        let mut selected_chat: Var<Option<ConvoId>> = ui.use_state(|| None, ()).into_var();
         let mut show_add_contact: Var<bool> = ui.use_state(|| false, ()).into_var();
         let mut show_add_group: Var<bool> = ui.use_state(|| false, ()).into_var();
         let mut show_add_device: Var<bool> = ui.use_state(|| false, ()).into_var();
         let mut show_preferences: Var<bool> = ui.use_state(|| false, ()).into_var();
-        let all_chats = ui.use_memo(
+        let convos = ui.use_memo(
             || {
-                let result = pollster::block_on(rpc.all_peers());
-                flatten_rpc(result)
-            },
-            self.0.state.update_count,
-        );
-        let all_groups = ui.use_memo(
-            || {
-                let result = pollster::block_on(rpc.group_list());
+                let result = pollster::block_on(rpc.convo_list());
                 flatten_rpc(result)
             },
             self.0.state.update_count,
@@ -69,8 +59,7 @@ impl Widget for SteadyState<'_> {
             .show_inside(ui, |ui| {
                 self.render_left(
                     ui,
-                    &all_chats,
-                    &all_groups,
+                    &convos,
                     &mut selected_chat,
                     &mut show_add_contact,
                     &mut show_add_group,
@@ -105,9 +94,8 @@ impl<'a> SteadyState<'a> {
     fn render_left(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        all_chats: &Result<BTreeMap<UserName, xirtam_client::internal::DmMessage>, String>,
-        all_groups: &Result<Vec<GroupId>, String>,
-        selected_chat: &mut Option<ChatSelection>,
+        convos: &Result<Vec<ConvoSummary>, String>,
+        selected_chat: &mut Option<ConvoId>,
         show_add_contact: &mut bool,
         show_add_group: &mut bool,
     ) {
@@ -120,16 +108,14 @@ impl<'a> SteadyState<'a> {
             }
         });
         ui.separator();
-        match all_chats {
+        match convos {
             Ok(lst) => {
                 ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
-                    for username in lst.keys() {
-                        let selection = ChatSelection::Dm(username.clone());
+                    for convo in lst {
+                        let selection = convo.convo_id.clone();
+                        let label = format_convo_label(&convo.convo_id);
                         if ui
-                            .selectable_label(
-                                *selected_chat == Some(selection.clone()),
-                                username.to_string(),
-                            )
+                            .selectable_label(*selected_chat == Some(selection.clone()), label)
                             .clicked()
                         {
                             selected_chat.replace(selection);
@@ -141,44 +127,23 @@ impl<'a> SteadyState<'a> {
                 self.0.state.error_dialog.replace(err.to_string());
             }
         }
-        ui.separator();
-        ui.label("Groups");
-        match all_groups {
-            Ok(groups) => {
-                for group in groups {
-                    let selection = ChatSelection::Group(*group);
-                    let label = format_group_label(group);
-                    if ui
-                        .selectable_label(*selected_chat == Some(selection.clone()), label)
-                        .clicked()
-                    {
-                        selected_chat.replace(selection);
-                    }
-                }
-            }
-            Err(err) => {
-                self.0.state.error_dialog.replace(err.to_string());
-            }
-        }
     }
 
-    fn render_right(
-        &mut self,
-        ui: &mut eframe::egui::Ui,
-        selected_chat: &Option<ChatSelection>,
-    ) {
+    fn render_right(&mut self, ui: &mut eframe::egui::Ui, selected_chat: &Option<ConvoId>) {
         if let Some(selection) = selected_chat {
             ui.add(Convo(self.0, selection.clone()));
         }
     }
 }
 
-fn format_group_label(group: &GroupId) -> String {
-    let short = short_group_id(group);
-    format!("Group {short}")
+fn format_convo_label(convo_id: &ConvoId) -> String {
+    match convo_id {
+        ConvoId::Direct { peer } => peer.to_string(),
+        ConvoId::Group { group_id } => format!("Group {}", short_group_id(group_id)),
+    }
 }
 
-fn short_group_id(group: &GroupId) -> String {
+fn short_group_id(group: &xirtam_structs::group::GroupId) -> String {
     let bytes = group.as_bytes();
     let mut out = String::with_capacity(8);
     for byte in bytes.iter().take(4) {

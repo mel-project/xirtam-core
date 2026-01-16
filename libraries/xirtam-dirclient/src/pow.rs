@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use equix::EquiXBuilder;
 use rand::RngCore;
 
@@ -12,6 +14,7 @@ pub fn solve_pow(seed: &PowSeed) -> anyhow::Result<PowSolution> {
 
 fn solve_equix_pow(seed: &PowSeed, effort: u64) -> anyhow::Result<PowSolution> {
     tracing::debug!(effort, "solving an equix PoW...");
+    let start = Instant::now();
     let mut nonce = rand::rng().next_u64();
     let eq = EquiXBuilder::new();
     loop {
@@ -30,6 +33,11 @@ fn solve_equix_pow(seed: &PowSeed, effort: u64) -> anyhow::Result<PowSolution> {
             first.copy_from_slice(&sol_hash.to_bytes()[..8]);
             let value = u64::from_be_bytes(first);
             if value.checked_mul(effort).is_some() {
+                tracing::debug!(
+                    effort,
+                    elapsed = debug(start.elapsed()),
+                    "solved an equix PoW!"
+                );
                 return Ok(PowSolution {
                     seed: seed.seed,
                     nonce,

@@ -1,4 +1,4 @@
-# Architecture
+# Network architecture
 
 ## Participants
 
@@ -15,10 +15,10 @@ Xirtam is an *end-to-end encrypted* chat system. This means that generally, clie
 
 ### Servers
 
-Servers are "concierge servers" for client devices. Unlike Matrix homeservers or email servers, these are *untrusted* entities with, most importantly, no power over the user identities, which are controlled entirely by the directory service. [This blogpost](https://nullchinchilla.substack.com/p/confederal) provides some context on why a "concierge" model much better than the homeservers found in typical federated protocols.
+Servers are "concierge servers" for client devices. Unlike Matrix homeservers or email servers, these are *untrusted* entities with, most importantly, no power over the user identities, which are controlled entirely by the directory service. 
 
 Servers:
-- host mailboxes (DM, group message, group management)
+- host mailboxes (DM, group message, group management) 
 - enforce ACLs based on device auth tokens
 - publish medium-term device keys for envelope encryption
 - serve username certificate chains

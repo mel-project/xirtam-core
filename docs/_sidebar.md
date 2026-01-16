@@ -1,2 +1,2 @@
 * [Home](/)
-* [Architecture](architecture.md)
+* [Network architecture](network.md)

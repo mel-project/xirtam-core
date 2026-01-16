@@ -10,12 +10,12 @@ use xirtam_structs::timestamp::Timestamp;
 use crate::Config;
 use crate::database::DATABASE;
 use crate::directory::DIR_CLIENT;
-use crate::server::get_server_client;
 use crate::identity::Identity;
+use crate::server::get_server_client;
 
 const MEDIUM_ROTATE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
-pub async fn rotation_loop(ctx: &AnyCtx<Config>) {
+pub async fn medium_key_loop(ctx: &AnyCtx<Config>) {
     loop {
         tokio::time::sleep(MEDIUM_ROTATE_INTERVAL).await;
         if let Err(err) = rotate_once(ctx).await {
