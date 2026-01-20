@@ -111,13 +111,13 @@ impl DeviceSigned {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HeaderEncrypted {
     pub sender_epk: DhPublic,
-    pub headers: Vec<HeaderEncryptedHeader>,
+    pub headers: Vec<EncryptionHeader>,
     pub body: Bytes,
 }
 
 /// A single recipient header for header encryption.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HeaderEncryptedHeader {
+pub struct EncryptionHeader {
     pub receiver_mpk_short: [u8; 2],
     pub receiver_key: Bytes,
 }
@@ -150,7 +150,7 @@ impl HeaderEncrypted {
             let receiver_mpk_short = mpk_short(&recipient_mpk);
             let ss = sender_esk.diffie_hellman(&recipient_mpk);
             let sealed = StreamKey::from_bytes(ss).encrypt([0u8; 24], &key_bytes);
-            headers.push(HeaderEncryptedHeader {
+            headers.push(EncryptionHeader {
                 receiver_mpk_short,
                 receiver_key: Bytes::from(sealed),
             });
@@ -206,7 +206,7 @@ fn mpk_short(mpk: &DhPublic) -> [u8; 2] {
 
 fn header_aad(
     sender_epk: &DhPublic,
-    headers: &[HeaderEncryptedHeader],
+    headers: &[EncryptionHeader],
 ) -> Result<Vec<u8>, HeaderEncryptionError> {
     bcs::to_bytes(&(sender_epk, headers)).map_err(|_| HeaderEncryptionError::Encode)
 }

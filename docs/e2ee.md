@@ -43,7 +43,7 @@ A header-encrypted message is BCS-encoded with the following fields:
 - `headers`, a list of headers, each of which contains:
     - `headers[i].receiver_mpk_short`, the first 2 bytes of the hash of the receiver medium-term public key, `H(receiver_mpk)`. This may collide, that is fine.
     - `headers[i].receiver_key`, the 32-byte, per-message symmetric key `K` encrypted with `DH(sender_esk, receiver_mpk)` using XChaCha20 (no Poly1305) with a zero nonce.
-- `body`, a message encrypted with `K` using XChaCha20-Poly1305 with a zero nonce, and aad being `[sender_epk, headers]`
+- `body`, a message encrypted with `K` using XChaCha20-Poly1305 with a zero nonce, and aad being the bcs encoding of `[sender_epk, headers]`
 
 ### Device signing
 
