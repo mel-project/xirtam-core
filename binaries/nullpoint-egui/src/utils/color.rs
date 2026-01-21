@@ -1,0 +1,12 @@
+use egui::Color32;
+use nullpoint_crypt::hash::Hash;
+use nullpoint_structs::username::UserName;
+
+pub fn username_color(username: &UserName) -> Color32 {
+    let hash = Hash::digest(username.as_str().as_bytes());
+    let bytes = hash.to_bytes();
+    let hue = (u16::from_le_bytes([bytes[0], bytes[1]]) % 360) as f32 / 360.0;
+    let hsva = egui::ecolor::Hsva::new(hue, 0.65, 0.55, 1.0);
+    let [r, g, b] = hsva.to_srgb();
+    Color32::from_rgb(r, g, b)
+}

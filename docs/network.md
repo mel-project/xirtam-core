@@ -2,7 +2,7 @@
 
 ## Participants
 
-There are three kinds of participants in the Xirtam protocol: **clients**, **servers**, and the **directory**.
+There are three kinds of participants in the Nullpoint protocol: **clients**, **servers**, and the **directory**.
 
 ### Clients
 
@@ -11,7 +11,7 @@ Clients are end-user devices. They:
 - talk to servers for mailbox access and device key publication
 - talk to the directory for username and server resolution
 
-Xirtam is an *end-to-end encrypted* chat system. This means that generally, clients are the only place where plaintext messages exist. Servers and the directory only see encrypted payloads plus the routing metadata required to deliver them.
+Nullpoint is an *end-to-end encrypted* chat system. This means that generally, clients are the only place where plaintext messages exist. Servers and the directory only see encrypted payloads plus the routing metadata required to deliver them.
 
 ### Servers
 
@@ -29,7 +29,7 @@ Servers also serve as read-replicas of the directory, so that other than during 
 
 ### Directory service
 
-The directory is a centralized, append-only registry that is the root of trust for the entire public key infrastructure of Xirtam. It maps:
+The directory is a centralized, append-only registry that is the root of trust for the entire public key infrastructure of Nullpoint. It maps:
 - username -> server name + root cert hash
 - server name -> server URLs + server public key
 

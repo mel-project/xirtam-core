@@ -19,5 +19,5 @@ The `mime` field indicates how to interpret `body`. For human chat messages, `bo
 | --- | --- | --- | --- |
 | `text/plain` | Human chat message | Raw UTF-8 text bytes | Username or group ID |
 | `text/markdown` | Human chat message with Markdown | Raw UTF-8 text bytes | Username or group ID |
-| `application/vnd.xirtam.v1.group_invite` | Group invite payload | JSON | Username |
-| `application/vnd.xirtam.v1.group_manage` | Group management command | JSON | Group ID |
+| `application/vnd.nullpoint.v1.group_invite` | Group invite payload | JSON | Username |
+| `application/vnd.nullpoint.v1.group_manage` | Group management command | JSON | Group ID |

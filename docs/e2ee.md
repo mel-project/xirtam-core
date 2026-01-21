@@ -2,7 +2,7 @@
 
 The Signal Protocol (formerly known as Axolotl) and variations on it is the de facto standard for end-to-end encrypted messaging. Software using it includes Signal, WhatsApp, Facebook Messenger, Matrix (through its Olm and Megolm variations), Google Messages...
 
-But Xirtam intentionally uses an E2EE scheme *very different from Signal Protocol*. We systematically avoid the "key ratcheting" design of Signal Protocol, etc, etc.
+But Nullpoint intentionally uses an E2EE scheme *very different from Signal Protocol*. We systematically avoid the "key ratcheting" design of Signal Protocol, etc, etc.
 
 ## Interesting design features
 
@@ -10,7 +10,7 @@ Some parts of the E2EE design are fairly conventional (e.g. we use XChaCha20, Ed
 
 - **We intentionally don't care about deniability**. 
     - Deniability complicates protocol design and is effectively impossible for large groups, where each message's authenticity must be verifiable by an unbounded number of counterparties, so triple-DH-style implicit authentication isn't going to work. (Even MLS isn't an exception to this rule; deniability there requires O(n^2) communication patterns over deniable 1-to-1 channels to distribute per-group signing keys on joining/leaving, which largely defeats the purpose of the complex machinery required to make ratcheting scale). 
-    - Varying deniability between groups and DMs, or small groups and large groups, is unintuitive to users. Users will be surprised if, say, nobody can fake a chat transcript in a group, but people can fake chat transcripts in DMs; "can I ask for proof for this scandalous Xirtam convo going viral" should have a uniform answer either way.
+    - Varying deniability between groups and DMs, or small groups and large groups, is unintuitive to users. Users will be surprised if, say, nobody can fake a chat transcript in a group, but people can fake chat transcripts in DMs; "can I ask for proof for this scandalous Nullpoint convo going viral" should have a uniform answer either way.
     - Deniability also disproportionately impacts *more user-empowering* forms of non-repudiation while minimally affecting problematic forms. Powerful third parties have really good ways of getting proof that somebody said something, like subpoenaing server logs and confiscating devices, that don't require cryptographic non-repudiation. Deniable systems also don't prevent providers from offering effectively non-deniable "abuse report" features, i.e. users snitching each other out to the server (a unique server-side ID of the message and a copy of the unique symmetric key used to encrypt that message is enough to prove to the server that somebody said something). On the other hand, users can no longer trust, say, forwarded messages purporting to be from other users; if preventing forging "message quotes" is done by server-side logic instead, then it's even worse, since malicious servers can easily fool users who are accustomed to trusting the "original author" field displayed in the UI.
 - **We use periodic rekeying rather than ratcheting**. Yes, this does mean we give up message-level FS/PCS.
     - Real-world compromise blast radii are *far* bigger than compromising a single key. There just isn't a realistic scenario where 1. all the keys on a device get compromised 2. no previous message history gets compromised 3. the attacker can't impersonate the user to download more messages, participate in further ratcheting, etc, at least for a small amount of time. 

@@ -6,4 +6,4 @@ CONFIG_FILE="$ROOT/demo/server.toml"
 
 cd "$ROOT"
 
-exec cargo run -p xirtam-server -- --config "$CONFIG_FILE"
+exec cargo run -p nullpoint-server -- --config "$CONFIG_FILE"

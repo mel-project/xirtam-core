@@ -10,7 +10,7 @@ SECRET_KEY="$ROOT/demo/state/directory-secret.key"
 cd "$ROOT"
 mkdir -p "$(dirname "$SECRET_KEY")" "$DB_DIR"
 
-exec cargo run -p xirtam-directory -- \
+exec cargo run -p nullpoint-directory -- \
   --listen "$LISTEN" \
   --db-path "$DB_DIR" \
   --secret-key "$SECRET_KEY"

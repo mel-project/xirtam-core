@@ -76,7 +76,7 @@ extend_chain(issuer_chain, new_cert):
 
 ### In practice
 
-In xirtam-client, adding a device is implemented as a **single transfer** from an existing device to the new device.
+In nullpoint-client, adding a device is implemented as a **single transfer** from an existing device to the new device.
 
 Instead of having the new device generate a keypair and send only its public key to the issuer, the existing device generates a complete **device bundle** that contains everything the new device needs to become a fully functional device:
 
@@ -86,7 +86,7 @@ Instead of having the new device generate a keypair and send only its public key
 
 This bundle is encoded as opaque bytes for the UI to transfer (typically as a single QR code, or as copy/paste text). The UI does not need to understand any of the contents.
 
-On the new device, xirtam-client:
+On the new device, nullpoint-client:
 
 1) decodes the bundle
 2) looks up the user descriptor in the directory to obtain the trusted root public key hash and the current server name

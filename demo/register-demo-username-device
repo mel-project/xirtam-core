@@ -16,7 +16,7 @@ DEVICE_CHAIN="$STATE_DIR/device-chain.bcs"
 cd "$ROOT"
 mkdir -p "$STATE_DIR"
 
-MULTITOOL=(cargo run -p xirtam-multitool --)
+MULTITOOL=(cargo run -p nullpoint-multitool --)
 DIR_ARGS=(--endpoint "$DIR_ENDPOINT" --public-key "$DIR_PUBLIC_KEY")
 
 if [[ ! -f "$USERNAME_KEYS" ]]; then

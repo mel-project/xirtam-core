@@ -3681,6 +3681,234 @@ dependencies = [
 ]
 
 [[package]]
+name = "nullpoint-client"
+version = "0.0.1"
+dependencies = [
+ "anyctx",
+ "anyhow",
+ "async-channel",
+ "async-trait",
+ "bcs",
+ "bytes",
+ "dashmap 5.5.3",
+ "futures-concurrency",
+ "moka",
+ "nanorpc",
+ "nullpoint-crypt",
+ "nullpoint-dirclient",
+ "nullpoint-nanorpc",
+ "nullpoint-structs",
+ "pollster",
+ "rand 0.8.5",
+ "scopeguard",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "smol_str 0.3.4",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "toml",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "nullpoint-crypt"
+version = "0.0.1"
+dependencies = [
+ "base64",
+ "bcs",
+ "blake3",
+ "chacha20",
+ "chacha20poly1305",
+ "derivative",
+ "ed25519-consensus",
+ "hex",
+ "rand 0.8.5",
+ "readme-rustdocifier",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "subtle",
+ "thiserror 2.0.17",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "nullpoint-dirclient"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "bytes",
+ "clap",
+ "equix",
+ "hex",
+ "nanorpc",
+ "novasmt",
+ "nullpoint-crypt",
+ "nullpoint-nanorpc",
+ "nullpoint-structs",
+ "rand 0.9.2",
+ "readme-rustdocifier",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "nullpoint-directory"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "bcs",
+ "bytes",
+ "clap",
+ "equix",
+ "futures-concurrency",
+ "hex",
+ "meshanina",
+ "nanorpc",
+ "novasmt",
+ "nullpoint-crypt",
+ "nullpoint-nanorpc",
+ "nullpoint-structs",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "smol_str 0.3.4",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "nullpoint-egui"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "chrono",
+ "clap",
+ "dirs",
+ "eframe",
+ "egui",
+ "egui_flex",
+ "egui_hooks",
+ "egui_infinite_scroll",
+ "notify-rust",
+ "nullpoint-client",
+ "nullpoint-crypt",
+ "nullpoint-structs",
+ "poll-promise",
+ "pollster",
+ "pulldown-cmark",
+ "rodio",
+ "serde",
+ "serde_json",
+ "smol_str 0.3.4",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "nullpoint-multitool"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "bytes",
+ "clap",
+ "nullpoint-crypt",
+ "nullpoint-dirclient",
+ "nullpoint-nanorpc",
+ "nullpoint-structs",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "nullpoint-nanorpc"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-compression",
+ "async-trait",
+ "futures-concurrency",
+ "nanorpc",
+ "reqwest",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "nullpoint-server"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-event",
+ "async-trait",
+ "axum",
+ "bcs",
+ "bytes",
+ "clap",
+ "futures-concurrency",
+ "moka",
+ "nanorpc",
+ "nullpoint-crypt",
+ "nullpoint-dirclient",
+ "nullpoint-nanorpc",
+ "nullpoint-structs",
+ "pollster",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "nullpoint-structs"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bcs",
+ "bytes",
+ "criterion",
+ "derivative",
+ "nanorpc",
+ "nullpoint-crypt",
+ "paste",
+ "rand 0.9.2",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "smol_str 0.3.4",
+ "thiserror 2.0.17",
+ "url",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7556,234 +7784,6 @@ name = "xcursor"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bec9e4a500ca8864c5b47b8b482a73d62e4237670e5b5f1d6b9e3cae50f28f2b"
-
-[[package]]
-name = "xirtam-client"
-version = "0.0.1"
-dependencies = [
- "anyctx",
- "anyhow",
- "async-channel",
- "async-trait",
- "bcs",
- "bytes",
- "dashmap 5.5.3",
- "futures-concurrency",
- "moka",
- "nanorpc",
- "pollster",
- "rand 0.8.5",
- "scopeguard",
- "serde",
- "serde_json",
- "serde_with",
- "smol_str 0.3.4",
- "sqlx",
- "thiserror 2.0.17",
- "tokio",
- "toml",
- "tracing",
- "url",
- "xirtam-crypt",
- "xirtam-dirclient",
- "xirtam-nanorpc",
- "xirtam-structs",
-]
-
-[[package]]
-name = "xirtam-crypt"
-version = "0.0.1"
-dependencies = [
- "base64",
- "bcs",
- "blake3",
- "chacha20",
- "chacha20poly1305",
- "derivative",
- "ed25519-consensus",
- "hex",
- "rand 0.8.5",
- "readme-rustdocifier",
- "serde",
- "serde_json",
- "serde_with",
- "subtle",
- "thiserror 2.0.17",
- "x25519-dalek",
-]
-
-[[package]]
-name = "xirtam-dirclient"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "bcs",
- "bytes",
- "clap",
- "equix",
- "hex",
- "nanorpc",
- "novasmt",
- "rand 0.9.2",
- "readme-rustdocifier",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "xirtam-crypt",
- "xirtam-nanorpc",
- "xirtam-structs",
-]
-
-[[package]]
-name = "xirtam-directory"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "bcs",
- "bytes",
- "clap",
- "equix",
- "futures-concurrency",
- "hex",
- "meshanina",
- "nanorpc",
- "novasmt",
- "rand 0.9.2",
- "serde",
- "serde_json",
- "smol_str 0.3.4",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "xirtam-crypt",
- "xirtam-nanorpc",
- "xirtam-structs",
-]
-
-[[package]]
-name = "xirtam-egui"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "base64",
- "bytes",
- "chrono",
- "clap",
- "dirs",
- "eframe",
- "egui",
- "egui_flex",
- "egui_hooks",
- "egui_infinite_scroll",
- "notify-rust",
- "poll-promise",
- "pollster",
- "pulldown-cmark",
- "rodio",
- "serde",
- "serde_json",
- "smol_str 0.3.4",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "xirtam-client",
- "xirtam-crypt",
- "xirtam-structs",
-]
-
-[[package]]
-name = "xirtam-multitool"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "bcs",
- "bytes",
- "clap",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "url",
- "xirtam-crypt",
- "xirtam-dirclient",
- "xirtam-nanorpc",
- "xirtam-structs",
-]
-
-[[package]]
-name = "xirtam-nanorpc"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "async-compression",
- "async-trait",
- "futures-concurrency",
- "nanorpc",
- "reqwest",
- "serde_json",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "xirtam-server"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "async-event",
- "async-trait",
- "axum",
- "bcs",
- "bytes",
- "clap",
- "futures-concurrency",
- "moka",
- "nanorpc",
- "pollster",
- "rand 0.9.2",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "url",
- "xirtam-crypt",
- "xirtam-dirclient",
- "xirtam-nanorpc",
- "xirtam-structs",
-]
-
-[[package]]
-name = "xirtam-structs"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "bcs",
- "bytes",
- "criterion",
- "derivative",
- "nanorpc",
- "paste",
- "rand 0.9.2",
- "regex",
- "serde",
- "serde_json",
- "serde_with",
- "smol_str 0.3.4",
- "thiserror 2.0.17",
- "url",
- "xirtam-crypt",
-]
 
 [[package]]
 name = "xkbcommon-dl"
