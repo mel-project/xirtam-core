@@ -19,10 +19,10 @@ A group is described by a **group descriptor**. The descriptor is BCS-encoded as
 The **group id** is:
 
 ```
-group_id = H(bcs_encode(group_descriptor))
+group_id = h(bcs_encode(group_descriptor))
 ```
 
-where `H` is BLAKE3.
+where `h` is BLAKE3.
 
 ## Mailboxes and access tokens
 
@@ -34,11 +34,11 @@ Each group has two mailboxes on the group’s server:
 Mailbox identifiers are derived from the group id as keyed hashes:
 
 ```
-group_messages_mailbox_id   = H_keyed("group-messages",    group_id_bytes)
-group_management_mailbox_id = H_keyed("group-management",  group_id_bytes)
+group_messages_mailbox_id   = h_keyed("group-messages",    group_id_bytes)
+group_management_mailbox_id = h_keyed("group-management",  group_id_bytes)
 ```
 
-Servers enforce mailbox access using opaque **auth tokens** (shared secrets). A token grants permissions via an ACL entry keyed by `H(token_bytes)`. The initial admin has a “group token” that can edit ACLs; invited members receive tokens that can send/receive.
+Servers enforce mailbox access using opaque **auth tokens** (shared secrets). A token grants permissions via an ACL entry keyed by `h(token_bytes)`. The initial admin has a “group token” that can edit ACLs; invited members receive tokens that can send/receive.
 
 ## Cryptographic keys
 
@@ -123,10 +123,10 @@ The management message body is a JSON tagged value (externally tagged, snake_cas
 
 Clients apply these rules when updating the roster:
 
-- **InviteSent(target)**: sender must be active (pending or accepted). Target becomes pending unless already accepted or banned.
-- **InviteAccepted**: applies to the sender. If the sender is banned, ignore; otherwise mark accepted.
-- **Leave**: if sender is not banned, remove sender from roster.
-- **Ban/Unban/AddAdmin/RemoveAdmin(target)**: sender must be an active admin.
+- **invite_sent(target)**: sender must be active (pending or accepted). Target becomes pending unless already accepted or banned.
+- **invite_accepted**: applies to the sender. If the sender is banned, ignore; otherwise mark accepted.
+- **leave**: if sender is not banned, remove sender from roster.
+- **ban / unban / add_admin / remove_admin (target)**: sender must be an active admin.
 
 The roster is initialized with `init_admin` as accepted + admin.
 
@@ -135,51 +135,51 @@ The roster is initialized with `init_admin` as accepted + admin.
 ### Create a group
 
 ```
-CreateGroup():
+create_group():
     descriptor = [random32, my_username, now_seconds, my_server_name, random32]
-    group_id = H(bcs_encode(descriptor))
+    group_id = h(bcs_encode(descriptor))
     group_message_key = random32
     group_token = random20
 
-    Server.RegisterGroup(group_id)
-    Server.SetMailboxAcl(group_messages_mailbox_id,   group_token, can_send=true, can_recv=true, can_edit_acl=true)
-    Server.SetMailboxAcl(group_management_mailbox_id, group_token, can_send=true, can_recv=true, can_edit_acl=true)
+    server.register_group(group_id)
+    server.set_mailbox_acl(group_messages_mailbox_id,   group_token, can_send=true, can_recv=true, can_edit_acl=true)
+    server.set_mailbox_acl(group_management_mailbox_id, group_token, can_send=true, can_recv=true, can_edit_acl=true)
 
-    Persist(descriptor, group_message_key_current=group_message_key, group_message_key_previous=group_message_key, group_token)
+    persist(descriptor, group_message_key_current=group_message_key, group_message_key_previous=group_message_key, group_token)
 ```
 
 ### Send a group chat message
 
 ```
-SendGroupMessage(group_id, event):
+send_group_message(group_id, event):
     // wrap event as tagged blob
     event_bytes = bcs_encode(event)
     msg_blob = ["v1.message_content", event_bytes]
 
     // sign and bind to group
-    signature = Ed25519.Sign(my_device_signing_sk, bcs_encode([group_id, my_username, msg_blob]))
+    signature = ed25519_sign(my_device_signing_sk, bcs_encode([group_id, my_username, msg_blob]))
     signed = [group_id, my_username, my_cert_chain, msg_blob, signature]
 
     // encrypt under current group message key
-    nonce = RandomBytes(24)
-    ct = XChaCha20-Poly1305(key=group_message_key_current, nonce=nonce).Encrypt(bcs_encode(signed))
+    nonce = random_bytes(24)
+    ct = xchacha20_poly1305_encrypt(key=group_message_key_current, nonce=nonce, plaintext=bcs_encode(signed))
 
-    MailboxSend(mailbox=group_messages_mailbox_id, kind="v1.group_message", body=bcs_encode([nonce, ct]))
+    mailbox_send(mailbox=group_messages_mailbox_id, kind="v1.group_message", body=bcs_encode([nonce, ct]))
 ```
 
 On receive from the group messages mailbox, clients do:
 
 ```
-RecvGroupMessageEntry(body_bytes):
+recv_group_message_entry(body_bytes):
     [nonce, ct] = bcs_decode(body_bytes)
-    signed_bytes = XChaCha20-Poly1305(key=group_message_key_current, nonce=nonce).Decrypt(ct)
-        or XChaCha20-Poly1305(key=group_message_key_previous, nonce=nonce).Decrypt(ct)
+    signed_bytes = xchacha20_poly1305_decrypt(key=group_message_key_current, nonce=nonce, ciphertext=ct)
+        or xchacha20_poly1305_decrypt(key=group_message_key_previous, nonce=nonce, ciphertext=ct)
     signed = bcs_decode(signed_bytes)
 
     [signed_group_id, sender, cert_chain, message, signature] = signed
     assert signed_group_id == group_id
-    VerifyCertificateChain(cert_chain, DirectoryRootHash(sender))
-    Ed25519.Verify(cert_chain.leaf_device_public_key, signature, bcs_encode([group_id, sender, message]))
+    verify_certificate_chain(cert_chain, directory_root_hash(sender))
+    ed25519_verify(cert_chain.leaf_device_public_key, signature, bcs_encode([group_id, sender, message]))
 
     // interpret tagged blob
     if message[0] == "v1.message_content":
@@ -196,31 +196,31 @@ Invites have two parts:
 2) A direct message to deliver the secret material (group key + token + descriptor) to the invitee.
 
 ```
-InviteUser(group_id, invitee_username):
+invite_user(group_id, invitee_username):
     invite_token = random20
-    Server.SetMailboxAcl(group_messages_mailbox_id,   invite_token, can_send=true, can_recv=true)
-    Server.SetMailboxAcl(group_management_mailbox_id, invite_token, can_send=true, can_recv=true)
+    server.set_mailbox_acl(group_messages_mailbox_id,   invite_token, can_send=true, can_recv=true)
+    server.set_mailbox_acl(group_management_mailbox_id, invite_token, can_send=true, can_recv=true)
 
     // roster signal (management mailbox)
-    SendGroupManagement(group_id, {"invite_sent": invitee_username})
+    send_group_management(group_id, {"invite_sent": invitee_username})
 
     // secret delivery (DM)
     dm_body_json = { descriptor, group_key: group_message_key_current, token: invite_token, created_at: now_nanos }
     invite_event = [invitee_username, now_nanos, "application/vnd.xirtam.v1.group_invite", dm_body_json]
-    SendDM(invitee_username, invite_event)
+    send_dm(invitee_username, invite_event)
 ```
 
 ### Accept an invite
 
 ```
-AcceptInvite(invite):
-    Persist(invite.descriptor, group_message_key_current=invite.group_key, group_message_key_previous=invite.group_key, token=invite.token)
+accept_invite(invite):
+    persist(invite.descriptor, group_message_key_current=invite.group_key, group_message_key_previous=invite.group_key, token=invite.token)
 
     // start reading management from the beginning; start reading messages from invite.created_at
-    SetMailboxCursor(group_management_mailbox_id, after=0)
-    SetMailboxCursor(group_messages_mailbox_id,   after=invite.created_at)
+    set_mailbox_cursor(group_management_mailbox_id, after=0)
+    set_mailbox_cursor(group_messages_mailbox_id,   after=invite.created_at)
 
-    SendGroupManagement(group_id, "invite_accepted")
+    send_group_management(group_id, "invite_accepted")
 ```
 
 ## Invite payload encoding
@@ -241,21 +241,21 @@ JSON encoding rules for binary values:
 ### Send a management message
 
 ```
-SendGroupManagement(group_id, manage_json):
+send_group_management(group_id, manage_json):
     manage_event = [group_id, now_nanos, "application/vnd.xirtam.v1.group_manage", manage_json]
     event_bytes = bcs_encode(manage_event)
     msg_blob = ["v1.message_content", event_bytes]
 
-    signature = Ed25519.Sign(my_device_signing_sk, bcs_encode([group_id, my_username, msg_blob]))
+    signature = ed25519_sign(my_device_signing_sk, bcs_encode([group_id, my_username, msg_blob]))
     signed = [group_id, my_username, my_cert_chain, msg_blob, signature]
-    nonce = RandomBytes(24)
-    ct = XChaCha20-Poly1305(key=management_key, nonce=nonce).Encrypt(bcs_encode(signed))
-    MailboxSend(mailbox=group_management_mailbox_id, kind="v1.group_message", body=bcs_encode([nonce, ct]))
+    nonce = random_bytes(24)
+    ct = xchacha20_poly1305_encrypt(key=management_key, nonce=nonce, plaintext=bcs_encode(signed))
+    mailbox_send(mailbox=group_management_mailbox_id, kind="v1.group_message", body=bcs_encode([nonce, ct]))
 ```
 
 ### Leave / ban / admin changes
 
-These are all management messages with the JSON forms listed above, sent via `SendGroupManagement`.
+These are all management messages with the JSON forms listed above, sent via `send_group_management`.
 
 ### Rekey
 

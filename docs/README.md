@@ -2,7 +2,9 @@
 
 **[Docs website](https://melproject.gitbook.io/xirtam-docs)**
 
-Xirtam (this name is provisional!) is a **confederal** end-to-end chat system. A confederal protocol is *somewhat* similar to a federated protocol like Matrix in that we use a server-client architecture, but we avoid having one gigantic server and instead allow anyone to join the network with their own server. 
+Xirtam (this name is provisional!) is a **confederal** end-to-end chat system. A confederal protocol shares two similarities with a federated protocol like Matrix:
+- we use a server-client architecture; it's not purely p2p
+- we avoid having one gigantic server and instead allow anyone to join the network with their own server. 
 
 There are two critical differences though:
 - **User sovereignty**: end-users, not servers, control root-of-trust information like public keys, as well as routing information like which server they're currently hosted at. These two pieces of information allow a user to *avoid cryptographic trust in servers* and *costlessly switch between servers*, which is not possible in a federated system like email or Matrix.
