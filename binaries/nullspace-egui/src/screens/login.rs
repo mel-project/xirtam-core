@@ -1,7 +1,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use eframe::egui::{Button, Response, Spinner, Widget};
-use egui::{Modal, RichText, TextEdit};
+use egui::{ComboBox, Modal, RichText, TextEdit};
 use egui_hooks::UseHookExt;
 use poll_promise::Promise;
 use nullspace_structs::username::UserName;
@@ -20,11 +20,19 @@ enum LoginStep {
     FinishAddDevice,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ServerChoice {
+    PublicTest,
+    Custom,
+}
+
 impl Widget for Login<'_> {
     fn ui(self, ui: &mut eframe::egui::Ui) -> Response {
         let step = ui.use_state(|| LoginStep::EnterUsername, ());
         let mut username_str = ui.use_state(|| "".to_string(), ()).into_var();
         let mut server_str = ui.use_state(|| "".to_string(), ()).into_var();
+        let mut server_choice = ui.use_state(|| ServerChoice::PublicTest, ()).into_var();
+        let mut custom_server_str = ui.use_state(|| "".to_string(), ()).into_var();
         let mut bundle_str = ui.use_state(String::new, ()).into_var();
         let register_info = ui.use_state(|| None::<nullspace_client::internal::RegisterStartInfo>, ());
         let register_start = ui.use_state(PromiseSlot::new, ());
@@ -76,15 +84,44 @@ impl Widget for Login<'_> {
                     let username: UserName = username_str.parse().unwrap();
                     ui.label(layout_md(ui, "You are registering a **new user**:"));
                     ui.colored_label(username_color(&username), username.as_str());
-                    ui.add(
-                        TextEdit::singleline(&mut *server_str).hint_text("Enter a ~server_id"),
-                    );
-                    ui.label(
-                        RichText::new(
-                            "Hint: ~public_test is the test server run by the Nullspace developers",
-                        )
-                        .size(10.0),
-                    );
+
+                    ui.horizontal(|ui| {
+                        ui.label("Server");
+                        ComboBox::from_id_salt("register_server_choice")
+                            .selected_text(match *server_choice {
+                                ServerChoice::PublicTest => "~public_test",
+                                ServerChoice::Custom => "Custom",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut *server_choice,
+                                    ServerChoice::PublicTest,
+                                    "~public_test",
+                                );
+                                ui.selectable_value(
+                                    &mut *server_choice,
+                                    ServerChoice::Custom,
+                                    "Custom",
+                                );
+                            });
+                    });
+
+                    if *server_choice == ServerChoice::PublicTest {
+                        *server_str = "~public_test".to_string();
+                        ui.label(
+                            RichText::new(
+                                "Hint: ~public_test is the test server run by the Nullspace developers",
+                            )
+                            .size(10.0),
+                        );
+                    } else {
+                        ui.add(
+                            TextEdit::singleline(&mut *custom_server_str)
+                                .hint_text("Enter a ~server_id"),
+                        );
+                        *server_str = (*custom_server_str).clone();
+                    }
+
                     let register_enabled =
                         !register_start.is_running() && !register_finish.is_running();
                     if ui

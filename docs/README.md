@@ -2,7 +2,7 @@
 
 **[Docs website](https://melproject.gitbook.io/nullspace)**
 
-Nullspace (this name is provisional!) is a **confederal** end-to-end chat system. A confederal protocol shares two similarities with a federated protocol like Matrix:
+Nullspace (aka "Xirtam") is a **confederal** end-to-end encrypted chat system. A confederal protocol shares two similarities with a federated protocol like Matrix:
 - we use a server-client architecture; it's not purely p2p
 - we avoid having one gigantic server and instead allow anyone to join the network with their own server. 
 
