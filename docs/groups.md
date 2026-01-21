@@ -1,6 +1,6 @@
 # Groups
 
-This document specifies Nullpoint group chats: identifiers, mailboxes, invites, membership semantics, management messages, and rekeying. It is intended to be sufficient for a clean-room implementation of a compatible client.
+This document specifies Nullspace group chats: identifiers, mailboxes, invites, membership semantics, management messages, and rekeying. It is intended to be sufficient for a clean-room implementation of a compatible client.
 
 ## Group identifiers and descriptor
 
@@ -102,7 +102,7 @@ After decrypting and verifying the signed group payload, clients interpret `mess
 The event fields must be:
 
 - `recipient` is the group id
-- `mime` is `application/vnd.nullpoint.v1.group_manage`
+- `mime` is `application/vnd.nullspace.v1.group_manage`
 - `body` is JSON
 
 ### JSON schema
@@ -206,7 +206,7 @@ invite_user(group_id, invitee_username):
 
     // secret delivery (DM)
     dm_body_json = { descriptor, group_key: group_message_key_current, token: invite_token, created_at: now_nanos }
-    invite_event = [invitee_username, now_nanos, "application/vnd.nullpoint.v1.group_invite", dm_body_json]
+    invite_event = [invitee_username, now_nanos, "application/vnd.nullspace.v1.group_invite", dm_body_json]
     send_dm(invitee_username, invite_event)
 ```
 
@@ -242,7 +242,7 @@ JSON encoding rules for binary values:
 
 ```
 send_group_management(group_id, manage_json):
-    manage_event = [group_id, now_nanos, "application/vnd.nullpoint.v1.group_manage", manage_json]
+    manage_event = [group_id, now_nanos, "application/vnd.nullspace.v1.group_manage", manage_json]
     event_bytes = bcs_encode(manage_event)
     msg_blob = ["v1.message_content", event_bytes]
 

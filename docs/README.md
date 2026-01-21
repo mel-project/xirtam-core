@@ -1,8 +1,8 @@
-# nullpoint: an experimental confederal protocol
+# nullspace: an experimental confederal protocol
 
-**[Docs website](https://melproject.gitbook.io/nullpoint)**
+**[Docs website](https://melproject.gitbook.io/nullspace)**
 
-Nullpoint (this name is provisional!) is a **confederal** end-to-end chat system. A confederal protocol shares two similarities with a federated protocol like Matrix:
+Nullspace (this name is provisional!) is a **confederal** end-to-end chat system. A confederal protocol shares two similarities with a federated protocol like Matrix:
 - we use a server-client architecture; it's not purely p2p
 - we avoid having one gigantic server and instead allow anyone to join the network with their own server. 
 
@@ -18,7 +18,7 @@ Some notable design features:
 - SimpleX-like unidirectional mailboxes for DMs
 - An very easy-to-implement wire protocol based on JSON-RPC long-polling
 - Robust high-level client library that abstracts over all encryption and storage, inspired by Telegram's TDLib
-- [**Novel end-to-end encryption system**](https://melproject.gitbook.io/nullpoint-docs/e2ee) that avoids "ratcheting" to achieve better performance and robustness, plus a much simpler implementation. E2EE is always-on and performant, even for large groups.
+- [**Novel end-to-end encryption system**](https://melproject.gitbook.io/nullspace-docs/e2ee) that avoids "ratcheting" to achieve better performance and robustness, plus a much simpler implementation. E2EE is always-on and performant, even for large groups.
 
 ## Implementation progress
 

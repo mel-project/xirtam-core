@@ -3681,7 +3681,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nullpoint-client"
+name = "nullspace-client"
 version = "0.0.1"
 dependencies = [
  "anyctx",
@@ -3694,10 +3694,10 @@ dependencies = [
  "futures-concurrency",
  "moka",
  "nanorpc",
- "nullpoint-crypt",
- "nullpoint-dirclient",
- "nullpoint-nanorpc",
- "nullpoint-structs",
+ "nullspace-crypt",
+ "nullspace-dirclient",
+ "nullspace-nanorpc",
+ "nullspace-structs",
  "pollster",
  "rand 0.8.5",
  "scopeguard",
@@ -3714,7 +3714,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nullpoint-crypt"
+name = "nullspace-crypt"
 version = "0.0.1"
 dependencies = [
  "base64",
@@ -3736,7 +3736,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nullpoint-dirclient"
+name = "nullspace-dirclient"
 version = "0.0.1"
 dependencies = [
  "anyhow",
@@ -3747,9 +3747,9 @@ dependencies = [
  "hex",
  "nanorpc",
  "novasmt",
- "nullpoint-crypt",
- "nullpoint-nanorpc",
- "nullpoint-structs",
+ "nullspace-crypt",
+ "nullspace-nanorpc",
+ "nullspace-structs",
  "rand 0.9.2",
  "readme-rustdocifier",
  "sqlx",
@@ -3760,7 +3760,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nullpoint-directory"
+name = "nullspace-directory"
 version = "0.0.1"
 dependencies = [
  "anyhow",
@@ -3775,9 +3775,9 @@ dependencies = [
  "meshanina",
  "nanorpc",
  "novasmt",
- "nullpoint-crypt",
- "nullpoint-nanorpc",
- "nullpoint-structs",
+ "nullspace-crypt",
+ "nullspace-nanorpc",
+ "nullspace-structs",
  "rand 0.9.2",
  "serde",
  "serde_json",
@@ -3790,7 +3790,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nullpoint-egui"
+name = "nullspace-egui"
 version = "0.0.1"
 dependencies = [
  "anyhow",
@@ -3805,9 +3805,9 @@ dependencies = [
  "egui_hooks",
  "egui_infinite_scroll",
  "notify-rust",
- "nullpoint-client",
- "nullpoint-crypt",
- "nullpoint-structs",
+ "nullspace-client",
+ "nullspace-crypt",
+ "nullspace-structs",
  "poll-promise",
  "pollster",
  "pulldown-cmark",
@@ -3822,17 +3822,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "nullpoint-multitool"
+name = "nullspace-multitool"
 version = "0.0.1"
 dependencies = [
  "anyhow",
  "bcs",
  "bytes",
  "clap",
- "nullpoint-crypt",
- "nullpoint-dirclient",
- "nullpoint-nanorpc",
- "nullpoint-structs",
+ "nullspace-crypt",
+ "nullspace-dirclient",
+ "nullspace-nanorpc",
+ "nullspace-structs",
  "serde",
  "serde_json",
  "sqlx",
@@ -3841,7 +3841,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nullpoint-nanorpc"
+name = "nullspace-nanorpc"
 version = "0.0.1"
 dependencies = [
  "anyhow",
@@ -3856,7 +3856,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nullpoint-server"
+name = "nullspace-server"
 version = "0.0.1"
 dependencies = [
  "anyhow",
@@ -3869,10 +3869,10 @@ dependencies = [
  "futures-concurrency",
  "moka",
  "nanorpc",
- "nullpoint-crypt",
- "nullpoint-dirclient",
- "nullpoint-nanorpc",
- "nullpoint-structs",
+ "nullspace-crypt",
+ "nullspace-dirclient",
+ "nullspace-nanorpc",
+ "nullspace-structs",
  "pollster",
  "rand 0.9.2",
  "serde",
@@ -3886,7 +3886,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nullpoint-structs"
+name = "nullspace-structs"
 version = "0.0.1"
 dependencies = [
  "anyhow",
@@ -3896,7 +3896,7 @@ dependencies = [
  "criterion",
  "derivative",
  "nanorpc",
- "nullpoint-crypt",
+ "nullspace-crypt",
  "paste",
  "rand 0.9.2",
  "regex",

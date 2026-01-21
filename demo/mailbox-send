@@ -28,7 +28,7 @@ if [[ ! -f "$CHAIN_FILE" ]]; then
   exit 1
 fi
 
-exec cargo run -p nullpoint-multitool -- \
+exec cargo run -p nullspace-multitool -- \
   --endpoint "$DIR_ENDPOINT" \
   --public-key "$DIR_PUBLIC_KEY" \
   device mailbox-send "$USERNAME" \
