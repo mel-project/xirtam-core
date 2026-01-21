@@ -1,8 +1,11 @@
 # Summary
 
 * [Home](README.md)
-* [Network architecture](network.md)
-* [End-to-end encryption](e2ee.md)
-* [Events](events.md)
-* [Groups](groups.md)
-* [Device certificates](devices.md)
+* [Protocol spec](protocol/README.md)
+  * [Network architecture](protocol/network.md)
+  * [End-to-end encryption](protocol/e2ee.md)
+  * [Events](protocol/events.md)
+  * [Groups](protocol/groups.md)
+  * [Device certificates](protocol/devices.md)
+* [Guides](guides/README.md)
+  * [GUI quick start](guides/gui-quick-start.md)

@@ -18,7 +18,7 @@ Some notable design features:
 - SimpleX-like unidirectional mailboxes for DMs
 - An very easy-to-implement wire protocol based on JSON-RPC long-polling
 - Robust high-level client library that abstracts over all encryption and storage, inspired by Telegram's TDLib
-- [**Novel end-to-end encryption system**](https://melproject.gitbook.io/nullspace-docs/e2ee) that avoids "ratcheting" to achieve better performance and robustness, plus a much simpler implementation. E2EE is always-on and performant, even for large groups.
+- [**Novel end-to-end encryption system**](protocol/e2ee.md) that avoids "ratcheting" to achieve better performance and robustness, plus a much simpler implementation. E2EE is always-on and performant, even for large groups.
 
 ## Implementation progress
 

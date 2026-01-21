@@ -16,7 +16,7 @@ This is doubly so if the RPC call is in a `use_memo` or any other construct that
 
 ## Docs maintenance
 
-Keep `docs/_sidebar.md` in sync with the docs. When adding, removing, or renaming doc pages, update the sidebar accordingly.
+Keep `docs/SUMMARY.md` in sync with the docs. When adding, removing, or renaming doc pages, update the summary accordingly.
 
 ## Documentation rules
 
