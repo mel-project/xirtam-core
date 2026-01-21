@@ -1,6 +1,6 @@
 # xirtam: an experimental confederal protocol
 
-Start with [network architecture](network.md).
+**[Docs website](https://melproject.gitbook.io/xirtam-docs)**
 
 Xirtam (this name is provisional!) is a **confederal** end-to-end chat system. A confederal protocol is *somewhat* similar to a federated protocol like Matrix in that we use a server-client architecture, but we avoid having one gigantic server and instead allow anyone to join the network with their own server. 
 
@@ -16,7 +16,7 @@ Some notable design features:
 - SimpleX-like unidirectional mailboxes for DMs
 - An very easy-to-implement wire protocol based on JSON-RPC long-polling
 - Robust high-level client library that abstracts over all encryption and storage, inspired by Telegram's TDLib
-- [**Novel end-to-end encryption system**](https://mel-project.github.io/xirtam-core/#/e2ee) that avoids "ratcheting" to achieve better performance and robustness, plus a much simpler implementation. E2EE is always-on and performant, even for large groups.
+- [**Novel end-to-end encryption system**](https://melproject.gitbook.io/xirtam-docs/e2ee) that avoids "ratcheting" to achieve better performance and robustness, plus a much simpler implementation. E2EE is always-on and performant, even for large groups.
 
 ## Implementation progress
 
