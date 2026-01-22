@@ -1,4 +1,4 @@
-use eframe::egui::{Modal, Response, Slider, Widget};
+use eframe::egui::{ComboBox, Modal, Response, Widget};
 
 use crate::NullspaceApp;
 
@@ -15,11 +15,17 @@ impl Widget for Preferences<'_> {
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label("Zoom");
-                    ui.add(
-                        Slider::new(&mut self.app.state.prefs.zoom_percent, 80..=160)
-                            .suffix("%")
-                            .clamping(egui::SliderClamping::Always),
-                    );
+                    ComboBox::from_id_salt("zoom_percent")
+                        .selected_text(format!("{}%", self.app.state.prefs.zoom_percent))
+                        .show_ui(ui, |ui| {
+                            for percent in (75u16..=200).step_by(25) {
+                                ui.selectable_value(
+                                    &mut self.app.state.prefs.zoom_percent,
+                                    percent,
+                                    format!("{percent}%"),
+                                );
+                            }
+                        });
                 });
                 if ui.button("Close").clicked() {
                     *self.open = false;
