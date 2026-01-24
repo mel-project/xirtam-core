@@ -1,10 +1,10 @@
 use nanorpc::DynRpcTransport;
-use sqlx::SqlitePool;
-use tracing::debug;
 use nullspace_crypt::hash::Hash;
 use nullspace_structs::directory::{DirectoryAnchor, DirectoryClient, DirectoryHeader};
+use sqlx::SqlitePool;
+use tracing::debug;
 
-const BATCH_LIMIT: u64 = 10_000;
+const BATCH_LIMIT: u64 = 1_000;
 
 pub async fn max_stored_height(pool: &SqlitePool) -> anyhow::Result<Option<u64>> {
     let height = sqlx::query_scalar::<_, Option<i64>>("SELECT MAX(height) FROM _dirclient_headers")

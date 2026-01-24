@@ -6,13 +6,13 @@ use std::time::Duration;
 use clap::Parser;
 
 use egui::{Modal, Spinner};
+use nullspace_client::{Client, Config, internal::Event};
+use nullspace_crypt::signing::SigningPublic;
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{self, Receiver},
 };
 use url::Url;
-use nullspace_client::{Client, Config, internal::Event};
-use nullspace_crypt::signing::SigningPublic;
 
 use crate::events::{event_loop, spawn_audio_thread};
 use crate::utils::prefs::PrefData;
@@ -86,22 +86,31 @@ impl NullspaceApp {
         let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert(
             "fantasque".to_string(),
-            egui::FontData::from_static(include_bytes!("fonts/FantasqueSansMono-Regular.ttf"))
-                .into(),
+            egui::FontData::from_static(include_bytes!(
+                "fonts/FantasqueSansMNerdFontMono-Regular.ttf"
+            ))
+            .into(),
         );
         fonts.font_data.insert(
             "fantasque_bold".to_string(),
-            egui::FontData::from_static(include_bytes!("fonts/FantasqueSansMono-Bold.ttf")).into(),
+            egui::FontData::from_static(include_bytes!(
+                "fonts/FantasqueSansMNerdFontMono-Bold.ttf"
+            ))
+            .into(),
         );
         fonts.font_data.insert(
             "fantasque_italic".to_string(),
-            egui::FontData::from_static(include_bytes!("fonts/FantasqueSansMono-Italic.ttf"))
-                .into(),
+            egui::FontData::from_static(include_bytes!(
+                "fonts/FantasqueSansMNerdFontMono-Italic.ttf"
+            ))
+            .into(),
         );
         fonts.font_data.insert(
             "fantasque_bold_italic".to_string(),
-            egui::FontData::from_static(include_bytes!("fonts/FantasqueSansMono-BoldItalic.ttf"))
-                .into(),
+            egui::FontData::from_static(include_bytes!(
+                "fonts/FantasqueSansMNerdFontMono-BoldItalic.ttf"
+            ))
+            .into(),
         );
         fonts.families.insert(
             egui::FontFamily::Name("fantasque".into()),
