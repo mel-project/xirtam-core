@@ -498,7 +498,7 @@ async fn convo_list(db: &sqlx::SqlitePool) -> anyhow::Result<Vec<ConvoSummary>> 
          FROM convos c \
          LEFT JOIN convo_messages m \
            ON m.id = (SELECT MAX(id) FROM convo_messages WHERE convo_id = c.id) \
-         ORDER BY COALESCE(m.received_at, c.created_at) DESC, c.id DESC",
+         ORDER BY (m.received_at IS NULL) DESC, m.received_at DESC, c.created_at DESC, c.id DESC",
     )
     .fetch_all(db)
     .await?;
