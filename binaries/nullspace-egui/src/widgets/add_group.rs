@@ -19,7 +19,7 @@ impl Widget for AddGroup<'_> {
                 let result = pollster::block_on(rpc.own_server());
                 flatten_rpc(result)
             },
-            self.app.state.update_count,
+            self.app.state.msg_updates,
         );
 
         if *self.open {

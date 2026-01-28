@@ -2,7 +2,8 @@ use bytes::Bytes;
 use chrono::{DateTime, Local, NaiveDate};
 use eframe::egui::{Key, Response, RichText, Widget};
 use egui::text::LayoutJob;
-use egui::{Button, Color32, Label, ScrollArea, Stroke, TextEdit, TextFormat};
+use egui::{Button, Color32, Label, ProgressBar, ScrollArea, Stroke, TextEdit, TextFormat};
+use egui_file_dialog::FileDialog;
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
 use nullspace_client::internal::{ConvoId, ConvoMessage};
@@ -10,14 +11,17 @@ use nullspace_structs::event::EventPayload;
 use nullspace_structs::group::{GroupId, GroupInviteMsg};
 use nullspace_structs::timestamp::NanoTimestamp;
 use pollster::FutureExt;
+use smol_str::SmolStr;
 use tracing::debug;
 
 use crate::NullspaceApp;
 use crate::promises::flatten_rpc;
 use crate::utils::color::username_color;
 use crate::utils::markdown::layout_md_raw;
+use crate::utils::units::{format_filesize, unit_for_bytes};
 use crate::widgets::group_roster::GroupRoster;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 const INITIAL_LIMIT: u16 = 100;
 const PAGE_LIMIT: u16 = 100;
@@ -144,7 +148,7 @@ impl Widget for Convo<'_> {
 }
 
 fn render_convo(app: &mut NullspaceApp, ui: &mut eframe::egui::Ui, convo_id: ConvoId) -> Response {
-    let update_count = app.state.update_count;
+    let update_count = app.state.msg_updates;
     let key = convo_id.clone();
     let mut state: Var<ConvoState> = ui
         .use_state(ConvoState::default, (key.clone(), "state"))
@@ -209,42 +213,30 @@ fn convo_history(
     flatten_rpc(result)
 }
 
-fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId) {
-    ui.add_space(8.0);
-    let key = convo_key(convo_id);
-    let mut draft: Var<String> = ui.use_state(String::new, (key.clone(), "draft")).into_var();
-
-    ui.button("\u{f067} Attach");
-
-    ui.take_available_space();
-
-    let newline_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, egui::Key::Enter);
-    let text_response = ScrollArea::vertical()
-        .animated(false)
-        .show(ui, |ui| {
-            ui.add_sized(
-                ui.available_size(),
-                TextEdit::multiline(&mut *draft)
-                    .desired_rows(1)
-                    .hint_text("Enter a message...")
-                    .desired_width(f32::INFINITY)
-                    .return_key(Some(newline_shortcut)),
-            )
-        })
-        .inner;
-
-    let enter_pressed = text_response.has_focus()
-        && text_response
-            .ctx
-            .input(|input| input.key_pressed(Key::Enter) && !input.modifiers.shift);
-    // if enter_pressed {
-    //     text_response.request_focus();
-    // }
-    let send_now = enter_pressed;
-    if send_now && !draft.trim().is_empty() {
-        let body = Bytes::from(draft.clone());
-        send_message(ui, app, convo_id, body);
-        draft.clear();
+fn render_header(
+    ui: &mut eframe::egui::Ui,
+    convo_id: &ConvoId,
+    show_roster: &mut Option<Var<bool>>,
+) {
+    match convo_id {
+        ConvoId::Direct { peer } => {
+            ui.horizontal_centered(|ui| {
+                ui.heading(peer.to_string());
+                ui.button("Info")
+            });
+        }
+        ConvoId::Group { group_id } => {
+            ui.horizontal_centered(|ui| {
+                ui.add(Label::new(
+                    RichText::from(format!("Group {}", short_group_id(group_id))).heading(),
+                ));
+                if let Some(show_roster) = show_roster.as_mut() {
+                    if ui.add(Button::new("Members")).clicked() {
+                        **show_roster = true;
+                    }
+                }
+            });
+        }
     }
 }
 
@@ -285,6 +277,86 @@ fn render_messages(
     }
 }
 
+fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId) {
+    ui.add_space(8.0);
+    let mut attachment: Var<Option<i64>> = ui.use_state(|| None, convo_id.clone()).into_var();
+    let key = convo_key(convo_id);
+    let mut draft: Var<String> = ui.use_state(String::new, (key.clone(), "draft")).into_var();
+
+    // attachment part
+    if let Some(in_progress) = attachment.as_ref() {
+        if let Some((uploaded, total)) = app.state.upload_progress.get(in_progress) {
+            let (unit_scale, unit_suffix) = unit_for_bytes((*uploaded).max(*total));
+            let uploaded_text = format_filesize(*uploaded, unit_scale);
+            let total_text = format_filesize(*total, unit_scale);
+            let progress = if *total == 0 {
+                0.0
+            } else {
+                (*uploaded as f32 / *total as f32).clamp(0.0, 1.0)
+            };
+            ui.add(
+                ProgressBar::new(progress)
+                    .text(format!("{uploaded_text}/{total_text} {unit_suffix}")),
+            );
+        } else if let Some(done) = app.state.upload_done.get(in_progress) {
+            // todo
+        } else {
+            ui.spinner();
+        }
+    } else {
+        if ui.button("\u{f067} Attach").clicked() {
+            app.file_dialog.pick_file();
+        }
+        app.file_dialog.update(ui.ctx());
+        if let Some(path) = app.file_dialog.take_picked() {
+            tracing::debug!(
+                path = debug(&path),
+                "picked an attachment, starting upload..."
+            );
+            let rpc = app.client.rpc();
+            let Ok(upload_id) = flatten_rpc(
+                rpc.upload_start(path, "application/octet-stream".into())
+                    .block_on(),
+            ) else {
+                return;
+            };
+            attachment.replace(upload_id);
+        }
+    }
+
+    ui.take_available_space();
+
+    // the texting part
+    let newline_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, egui::Key::Enter);
+    let text_response = ScrollArea::vertical()
+        .animated(false)
+        .show(ui, |ui| {
+            ui.add_sized(
+                ui.available_size(),
+                TextEdit::multiline(&mut *draft)
+                    .desired_rows(1)
+                    .hint_text("Enter a message...")
+                    .desired_width(f32::INFINITY)
+                    .return_key(Some(newline_shortcut)),
+            )
+        })
+        .inner;
+
+    let enter_pressed = text_response.has_focus()
+        && text_response
+            .ctx
+            .input(|input| input.key_pressed(Key::Enter) && !input.modifiers.shift);
+    // if enter_pressed {
+    //     text_response.request_focus();
+    // }
+    let send_now = enter_pressed;
+    if send_now && !draft.trim().is_empty() {
+        let body = Bytes::from(draft.clone());
+        send_message(ui, app, convo_id, body);
+        draft.clear();
+    }
+}
+
 fn send_message(
     ui: &mut eframe::egui::Ui,
     app: &mut NullspaceApp,
@@ -297,33 +369,6 @@ fn send_message(
         let _ = flatten_rpc(rpc.convo_send(convo_id, "text/markdown".into(), body).await);
     });
     ui.ctx().request_discard("msg sent");
-}
-
-fn render_header(
-    ui: &mut eframe::egui::Ui,
-    convo_id: &ConvoId,
-    show_roster: &mut Option<Var<bool>>,
-) {
-    match convo_id {
-        ConvoId::Direct { peer } => {
-            ui.horizontal_centered(|ui| {
-                ui.heading(peer.to_string());
-                ui.button("Info")
-            });
-        }
-        ConvoId::Group { group_id } => {
-            ui.horizontal_centered(|ui| {
-                ui.add(Label::new(
-                    RichText::from(format!("Group {}", short_group_id(group_id))).heading(),
-                ));
-                if let Some(show_roster) = show_roster.as_mut() {
-                    if ui.add(Button::new("Members")).clicked() {
-                        **show_roster = true;
-                    }
-                }
-            });
-        }
-    }
 }
 
 fn render_roster(

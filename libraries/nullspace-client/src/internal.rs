@@ -1,32 +1,37 @@
-use async_trait::async_trait;
 use anyctx::AnyCtx;
 use async_channel::Receiver as AsyncReceiver;
+use async_trait::async_trait;
 use bytes::Bytes;
 use nanorpc::nanorpc_derive;
+use nullspace_crypt::dh::DhSecret;
+use nullspace_crypt::hash::BcsHashExt;
+use nullspace_crypt::signing::{Signable, Signature};
+use nullspace_structs::certificate::{CertificateChain, DeviceSecret};
+use nullspace_structs::fragment::FragmentRoot;
+use nullspace_structs::group::GroupId;
+use nullspace_structs::server::{AuthToken, ServerClient, ServerName, SignedMediumPk};
+use nullspace_structs::timestamp::{NanoTimestamp, Timestamp};
+use nullspace_structs::username::{UserDescriptor, UserName};
 use serde::{Deserialize, Serialize};
 use serde_with::base64::{Base64, UrlSafe};
 use serde_with::formats::Unpadded;
 use serde_with::{FromInto, IfIsHumanReadable, serde_as};
 use smol_str::SmolStr;
+use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use thiserror::Error;
-use nullspace_crypt::dh::DhSecret;
-use nullspace_crypt::hash::BcsHashExt;
-use nullspace_crypt::signing::{Signable, Signature};
-use nullspace_structs::certificate::{CertificateChain, DeviceSecret};
-use nullspace_structs::server::{AuthToken, ServerClient, ServerName, SignedMediumPk};
-use nullspace_structs::group::GroupId;
-use nullspace_structs::username::{UserDescriptor, UserName};
-use nullspace_structs::timestamp::{NanoTimestamp, Timestamp};
+use tokio::sync::Mutex;
 
 use crate::config::Config;
 pub use crate::convo::{ConvoId, ConvoMessage, ConvoSummary};
-use crate::convo::{parse_convo_id, accept_invite, create_group, invite, load_group, queue_message, GroupRoster};
+use crate::convo::{
+    GroupRoster, accept_invite, create_group, invite, load_group, parse_convo_id, queue_message,
+};
 use crate::database::{DATABASE, DbNotify, identity_exists};
 use crate::directory::DIR_CLIENT;
-use crate::server::get_server_client;
 use crate::identity::Identity;
+use crate::server::get_server_client;
+use crate::upload;
 
 /// The internal JSON-RPC interface exposed by nullspace-client.
 #[nanorpc_derive]
@@ -59,19 +64,45 @@ pub trait InternalProtocol {
     ) -> Result<i64, InternalRpcError>;
     async fn convo_create_group(&self, server: ServerName) -> Result<ConvoId, InternalRpcError>;
     async fn own_server(&self) -> Result<ServerName, InternalRpcError>;
-    async fn group_invite(&self, group: GroupId, username: UserName) -> Result<(), InternalRpcError>;
-    async fn group_members(
+    async fn group_invite(
         &self,
         group: GroupId,
-    ) -> Result<Vec<GroupMember>, InternalRpcError>;
+        username: UserName,
+    ) -> Result<(), InternalRpcError>;
+    async fn group_members(&self, group: GroupId) -> Result<Vec<GroupMember>, InternalRpcError>;
     async fn group_accept_invite(&self, dm_id: i64) -> Result<GroupId, InternalRpcError>;
+
+    async fn upload_start(
+        &self,
+        absolute_path: PathBuf,
+        mime: SmolStr,
+    ) -> Result<i64, InternalRpcError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {
-    State { logged_in: bool },
-    ConvoUpdated { convo_id: ConvoId },
-    GroupUpdated { group: GroupId },
+    State {
+        logged_in: bool,
+    },
+    ConvoUpdated {
+        convo_id: ConvoId,
+    },
+    GroupUpdated {
+        group: GroupId,
+    },
+    UploadProgress {
+        id: i64,
+        uploaded_size: u64,
+        total_size: u64,
+    },
+    UploadDone {
+        id: i64,
+        root: FragmentRoot,
+    },
+    UploadFailed {
+        id: i64,
+        error: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -94,8 +125,7 @@ pub enum RegisterFinish {
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NewDeviceBundle(
-    #[serde_as(as = "IfIsHumanReadable<Base64<UrlSafe, Unpadded>, FromInto<Vec<u8>>>")]
-    pub Bytes,
+    #[serde_as(as = "IfIsHumanReadable<Base64<UrlSafe, Unpadded>, FromInto<Vec<u8>>>")] pub Bytes,
 );
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -193,15 +223,16 @@ impl InternalProtocol for InternalImpl {
         let db = self.ctx.get(DATABASE);
         let identity = Identity::load(db).await.map_err(internal_err)?;
         let issuer_cert = identity.cert_chain.last_device();
-        let issuer_can_issue = issuer_cert.pk == identity.device_secret.public()
-            && issuer_cert.can_issue;
+        let issuer_can_issue =
+            issuer_cert.pk == identity.device_secret.public() && issuer_cert.can_issue;
         if !issuer_can_issue {
             return Err(InternalRpcError::AccessDenied);
         }
         let new_secret = DeviceSecret::random();
-        let cert = identity
-            .device_secret
-            .issue_certificate(&new_secret.public(), expiry, can_issue);
+        let cert =
+            identity
+                .device_secret
+                .issue_certificate(&new_secret.public(), expiry, can_issue);
         let mut ancestors = identity.cert_chain.ancestors.clone();
         ancestors.push(identity.cert_chain.this.clone());
         let chain = CertificateChain {
@@ -258,7 +289,9 @@ impl InternalProtocol for InternalImpl {
         if !identity_exists(db).await.map_err(internal_err)? {
             return Err(InternalRpcError::NotReady);
         }
-        let group_id = create_group(&self.ctx, server).await.map_err(internal_err)?;
+        let group_id = create_group(&self.ctx, server)
+            .await
+            .map_err(internal_err)?;
         Ok(ConvoId::Group { group_id })
     }
 
@@ -270,12 +303,18 @@ impl InternalProtocol for InternalImpl {
             .ok_or_else(|| InternalRpcError::Other("server name not available".into()))
     }
 
-    async fn group_invite(&self, group: GroupId, username: UserName) -> Result<(), InternalRpcError> {
+    async fn group_invite(
+        &self,
+        group: GroupId,
+        username: UserName,
+    ) -> Result<(), InternalRpcError> {
         let db = self.ctx.get(DATABASE);
         if !identity_exists(db).await.map_err(internal_err)? {
             return Err(InternalRpcError::NotReady);
         }
-        invite(&self.ctx, group, username).await.map_err(internal_err)
+        invite(&self.ctx, group, username)
+            .await
+            .map_err(internal_err)
     }
 
     async fn group_members(&self, group: GroupId) -> Result<Vec<GroupMember>, InternalRpcError> {
@@ -323,6 +362,14 @@ impl InternalProtocol for InternalImpl {
             }
         }
         result.map_err(internal_err)
+    }
+
+    async fn upload_start(
+        &self,
+        absolute_path: PathBuf,
+        mime: SmolStr,
+    ) -> Result<i64, InternalRpcError> {
+        upload::upload_start(&self.ctx, absolute_path, mime).await
     }
 }
 
@@ -424,7 +471,7 @@ async fn server_from_name(
         .map_err(internal_err)
 }
 
-async fn device_auth(
+pub(crate) async fn device_auth(
     server: &ServerClient,
     username: &UserName,
     cert_chain: &CertificateChain,
@@ -488,12 +535,25 @@ struct BundleInner {
     cert_chain: CertificateChain,
 }
 
-fn internal_err(err: impl std::fmt::Display) -> InternalRpcError {
+pub(crate) fn internal_err(err: impl std::fmt::Display) -> InternalRpcError {
     InternalRpcError::Other(err.to_string())
 }
 
 async fn convo_list(db: &sqlx::SqlitePool) -> anyhow::Result<Vec<ConvoSummary>> {
-    let rows = sqlx::query_as::<_, (String, String, i64, Option<i64>, Option<String>, Option<String>, Option<Vec<u8>>, Option<i64>, Option<String>)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            i64,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            Option<Vec<u8>>,
+            Option<i64>,
+            Option<String>,
+        ),
+    >(
         "SELECT c.convo_type, c.convo_counterparty, c.created_at, \
                 m.id, m.sender_username, m.mime, m.body, m.received_at, m.send_error \
          FROM convos c \
@@ -504,7 +564,18 @@ async fn convo_list(db: &sqlx::SqlitePool) -> anyhow::Result<Vec<ConvoSummary>> 
     .fetch_all(db)
     .await?;
     let mut out = Vec::with_capacity(rows.len());
-    for (convo_type, counterparty, _created_at, msg_id, sender_username, mime, body, received_at, send_error) in rows {
+    for (
+        convo_type,
+        counterparty,
+        _created_at,
+        msg_id,
+        sender_username,
+        mime,
+        body,
+        received_at,
+        send_error,
+    ) in rows
+    {
         let convo_id = parse_convo_id(&convo_type, &counterparty)
             .ok_or_else(|| anyhow::anyhow!("invalid convo row"))?;
         let last_message = match (msg_id, sender_username, mime, body) {
@@ -541,21 +612,22 @@ async fn convo_history(
     let after = after.unwrap_or(i64::MIN);
     let convo_type = convo_id.convo_type();
     let counterparty = convo_id.counterparty();
-    let mut rows = sqlx::query_as::<_, (i64, String, String, Vec<u8>, Option<i64>, Option<String>)>(
-        "SELECT m.id, m.sender_username, m.mime, m.body, m.received_at, m.send_error \
+    let mut rows =
+        sqlx::query_as::<_, (i64, String, String, Vec<u8>, Option<i64>, Option<String>)>(
+            "SELECT m.id, m.sender_username, m.mime, m.body, m.received_at, m.send_error \
          FROM convo_messages m \
          JOIN convos c ON m.convo_id = c.id \
          WHERE c.convo_type = ? AND c.convo_counterparty = ? AND m.id <= ? AND m.id >= ? \
          ORDER BY m.id DESC \
          LIMIT ?",
-    )
-    .bind(convo_type)
-    .bind(counterparty)
-    .bind(before)
-    .bind(after)
-    .bind(limit as i64)
-    .fetch_all(db)
-    .await?;
+        )
+        .bind(convo_type)
+        .bind(counterparty)
+        .bind(before)
+        .bind(after)
+        .bind(limit as i64)
+        .fetch_all(db)
+        .await?;
     rows.reverse();
     let mut out = Vec::with_capacity(rows.len());
     for (id, sender_username, mime, body, received_at, send_error) in rows {

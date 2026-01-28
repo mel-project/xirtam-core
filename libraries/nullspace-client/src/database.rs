@@ -1,17 +1,17 @@
 use std::time::Duration;
 
 use anyctx::AnyCtx;
-use async_channel::Sender as AsyncSender;
 use futures_concurrency::future::Race;
-use sqlx::{Executor, Sqlite, SqlitePool};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use nullspace_structs::server::MailboxId;
 use nullspace_structs::group::GroupId;
+use nullspace_structs::server::MailboxId;
 use nullspace_structs::timestamp::NanoTimestamp;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::{Executor, Sqlite, SqlitePool};
 
 use crate::Config;
-use crate::convo::parse_convo_id;
 use crate::config::Ctx;
+use crate::convo::parse_convo_id;
+use crate::events::emit_event;
 use crate::internal::Event;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -67,16 +67,13 @@ pub static DATABASE: Ctx<SqlitePool> = |ctx| {
     .expect("failed to initialize database")
 };
 
-pub async fn event_loop(ctx: &AnyCtx<Config>, event_tx: AsyncSender<Event>) {
-    (
-        login_event_loop(ctx, event_tx.clone()),
-        message_event_loop(ctx, event_tx),
-    )
+pub async fn event_loop(ctx: &AnyCtx<Config>) {
+    (login_event_loop(ctx), message_event_loop(ctx))
         .race()
         .await;
 }
 
-async fn login_event_loop(ctx: &AnyCtx<Config>, event_tx: AsyncSender<Event>) {
+async fn login_event_loop(ctx: &AnyCtx<Config>) {
     let db = ctx.get(DATABASE);
     let mut notify = DbNotify::new();
     let mut logged_in = loop {
@@ -87,9 +84,7 @@ async fn login_event_loop(ctx: &AnyCtx<Config>, event_tx: AsyncSender<Event>) {
             }
         }
     };
-    if event_tx.send(Event::State { logged_in }).await.is_err() {
-        return;
-    }
+    emit_event(ctx, Event::State { logged_in });
     loop {
         notify.wait_for_change().await;
         let next_logged_in = match identity_exists(db).await {
@@ -101,14 +96,12 @@ async fn login_event_loop(ctx: &AnyCtx<Config>, event_tx: AsyncSender<Event>) {
         };
         if next_logged_in != logged_in {
             logged_in = next_logged_in;
-            if event_tx.send(Event::State { logged_in }).await.is_err() {
-                return;
-            }
+            emit_event(ctx, Event::State { logged_in });
         }
     }
 }
 
-async fn message_event_loop(ctx: &AnyCtx<Config>, event_tx: AsyncSender<Event>) {
+async fn message_event_loop(ctx: &AnyCtx<Config>) {
     let db = ctx.get(DATABASE);
     let mut notify = DbNotify::new();
     let mut last_seen_id = current_max_msg(db).await.unwrap_or(0);
@@ -135,13 +128,7 @@ async fn message_event_loop(ctx: &AnyCtx<Config>, event_tx: AsyncSender<Event>) 
         last_seen_received_at = new_received_at;
         convos.extend(received_convos);
         for convo_id in convos {
-            if event_tx
-                .send(Event::ConvoUpdated { convo_id })
-                .await
-                .is_err()
-            {
-                return;
-            }
+            emit_event(ctx, Event::ConvoUpdated { convo_id });
         }
         let (next_versions, roster_groups) = match updated_group_versions(db, &group_versions).await
         {
@@ -153,9 +140,7 @@ async fn message_event_loop(ctx: &AnyCtx<Config>, event_tx: AsyncSender<Event>) 
         };
         group_versions = next_versions;
         for group in roster_groups {
-            if event_tx.send(Event::GroupUpdated { group }).await.is_err() {
-                return;
-            }
+            emit_event(ctx, Event::GroupUpdated { group });
         }
     }
 }

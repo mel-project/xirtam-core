@@ -3,6 +3,7 @@ mod config;
 mod convo;
 mod database;
 mod directory;
+mod events;
 mod identity;
 pub mod internal;
 mod long_poll;
@@ -10,6 +11,7 @@ mod main_loop;
 mod medium_keys;
 mod retry;
 mod server;
+mod upload;
 mod user_info;
 
 use std::sync::mpsc::Sender;

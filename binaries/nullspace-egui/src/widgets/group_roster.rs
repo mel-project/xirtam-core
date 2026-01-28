@@ -2,11 +2,11 @@ use eframe::egui::{Button, Modal, Response, TextEdit, Widget};
 use egui::{Color32, RichText};
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
-use poll_promise::Promise;
-use pollster::block_on;
 use nullspace_client::internal::GroupMemberStatus;
 use nullspace_structs::group::GroupId;
 use nullspace_structs::username::UserName;
+use poll_promise::Promise;
+use pollster::block_on;
 
 use crate::NullspaceApp;
 use crate::promises::{PromiseSlot, flatten_rpc};
@@ -31,7 +31,7 @@ impl Widget for GroupRoster<'_> {
                         let result = block_on(rpc.group_members(self.group));
                         flatten_rpc(result)
                     },
-                    (self.group, self.app.state.update_count),
+                    (self.group, self.app.state.msg_updates),
                 );
 
                 match members {

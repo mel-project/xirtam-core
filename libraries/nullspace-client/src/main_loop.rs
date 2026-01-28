@@ -7,6 +7,7 @@ use tokio::sync::oneshot;
 
 use crate::Config;
 use crate::database::{DATABASE, DbNotify, event_loop, identity_exists};
+use crate::events::init_event_tx;
 
 use crate::convo::convo_loop;
 
@@ -28,10 +29,11 @@ pub async fn main_loop(
     });
 
     let (event_tx, event_rx) = async_channel::unbounded();
+    init_event_tx(&ctx, event_tx.clone());
     let internal = InternalImpl::new(ctx.clone(), event_rx);
     let futs = (
         rpc_loop(internal, req_rx),
-        event_loop(&ctx, event_tx),
+        event_loop(&ctx),
         worker_loop(&ctx),
     );
     futs.race().await;

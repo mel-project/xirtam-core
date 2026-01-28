@@ -29,7 +29,7 @@ impl Widget for SteadyState<'_> {
                 let result = pollster::block_on(rpc.convo_list());
                 flatten_rpc(result)
             },
-            self.0.state.update_count,
+            self.0.state.msg_updates,
         );
 
         let frame = eframe::egui::Frame::default().inner_margin(eframe::egui::Margin::same(8));

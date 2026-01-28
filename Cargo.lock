@@ -1588,6 +1588,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "directories"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16f5094c54661b38d03bd7e50df373292118db60b585c08a411c6d840017fe7d"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
 name = "dirs"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1670,6 +1679,12 @@ name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
+
+[[package]]
+name = "dunce"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "dyn-clone"
@@ -1785,6 +1800,19 @@ dependencies = [
  "serde",
  "smallvec",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "egui-file-dialog"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35f17e09f18a266f4ee9f1de0c22a6838d60b34d86a6c766f3d707accd483e50"
+dependencies = [
+ "directories",
+ "dunce",
+ "egui",
+ "serde",
+ "sysinfo",
 ]
 
 [[package]]
@@ -3692,6 +3720,7 @@ dependencies = [
  "bytes",
  "dashmap 5.5.3",
  "futures-concurrency",
+ "memmap2",
  "moka",
  "nanorpc",
  "nullspace-crypt",
@@ -3801,6 +3830,7 @@ dependencies = [
  "dirs",
  "eframe",
  "egui",
+ "egui-file-dialog",
  "egui_flex",
  "egui_hooks",
  "egui_infinite_scroll",
@@ -4239,6 +4269,16 @@ dependencies = [
  "block2 0.6.2",
  "libc",
  "objc2 0.6.3",
+ "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-io-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
+dependencies = [
+ "libc",
  "objc2-core-foundation",
 ]
 
@@ -6046,6 +6086,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.112",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.37.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16607d5caffd1c07ce073528f9ed972d88db15dd44023fa57142963be3feb11f"
+dependencies = [
+ "libc",
+ "objc2-core-foundation",
+ "objc2-io-kit",
+ "windows 0.61.3",
 ]
 
 [[package]]

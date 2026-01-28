@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -6,8 +7,10 @@ use std::time::Duration;
 use clap::Parser;
 
 use egui::{Modal, Spinner, style::ScrollStyle};
+use egui_file_dialog::FileDialog;
 use nullspace_client::{Client, Config, internal::Event};
 use nullspace_crypt::signing::SigningPublic;
+use nullspace_structs::fragment::FragmentRoot;
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{self, Receiver},
@@ -44,16 +47,22 @@ struct NullspaceApp {
     recv_event: Receiver<Event>,
     focused: Arc<AtomicBool>,
     prefs_path: PathBuf,
+    file_dialog: FileDialog,
+
     state: AppState,
 }
 
 #[derive(Default)]
 struct AppState {
     logged_in: Option<bool>,
-    update_count: u64,
+    msg_updates: u64,
     error_dialog: Option<String>,
     prefs: PrefData,
     last_saved_prefs: PrefData,
+
+    upload_progress: BTreeMap<i64, (u64, u64)>,
+    upload_done: BTreeMap<i64, FragmentRoot>,
+    upload_error: BTreeMap<i64, String>,
 }
 
 impl NullspaceApp {
@@ -126,10 +135,18 @@ impl NullspaceApp {
             egui::FontFamily::Name("fantasque_bold_italic".into()),
             vec!["fantasque_bold_italic".to_string()],
         );
-        fonts.families.insert(
-            egui::FontFamily::Proportional,
-            vec!["fantasque".to_string()],
-        );
+
+        // we keep the existing font as a fallback
+        let mut existing_fonts = fonts
+            .families
+            .get(&egui::FontFamily::Proportional)
+            .unwrap()
+            .clone();
+        existing_fonts.insert(0, "fantasque".into());
+        fonts
+            .families
+            .insert(egui::FontFamily::Proportional, existing_fonts);
+
         fonts
             .families
             .insert(egui::FontFamily::Monospace, vec!["fantasque".to_string()]);
@@ -141,6 +158,7 @@ impl NullspaceApp {
             recv_event,
             focused,
             prefs_path,
+            file_dialog: FileDialog::new(),
             state: AppState {
                 prefs: prefs.clone(),
                 last_saved_prefs: prefs,
@@ -156,17 +174,39 @@ impl eframe::App for NullspaceApp {
         let focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
 
         self.focused.store(focused, Ordering::Relaxed);
-        if let Ok(event) = self.recv_event.try_recv() {
+        while let Ok(event) = self.recv_event.try_recv() {
             tracing::debug!(event = ?event, "processing nullspace event");
             match event {
                 Event::State { logged_in } => self.state.logged_in = Some(logged_in),
                 Event::ConvoUpdated { convo_id } => {
                     let _ = convo_id;
-                    self.state.update_count = self.state.update_count.saturating_add(1);
+                    self.state.msg_updates = self.state.msg_updates.saturating_add(1);
                 }
                 Event::GroupUpdated { group } => {
                     let _ = group;
-                    self.state.update_count = self.state.update_count.saturating_add(1);
+                    self.state.msg_updates = self.state.msg_updates.saturating_add(1);
+                }
+                Event::UploadProgress {
+                    id,
+                    uploaded_size,
+                    total_size,
+                } => {
+                    tracing::debug!(id, uploaded_size, total_size, "upload progress event");
+
+                    self.state
+                        .upload_progress
+                        .insert(id, (uploaded_size, total_size));
+                }
+                Event::UploadDone { id, root } => {
+                    tracing::debug!(id, root = ?root, "upload done event");
+                    self.state.upload_progress.remove(&id);
+                    self.state.upload_done.insert(id, root);
+                    self.state.upload_error.remove(&id);
+                }
+                Event::UploadFailed { id, error } => {
+                    tracing::warn!(id, error = %error, "upload failed event");
+                    self.state.upload_progress.remove(&id);
+                    self.state.upload_error.insert(id, error.to_string());
                 }
             }
         }
