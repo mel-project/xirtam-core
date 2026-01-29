@@ -1,14 +1,22 @@
+use std::future::Future;
+use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use anyctx::AnyCtx;
 use bytes::Bytes;
+use futures_concurrency::future::TryJoin;
 use nullspace_crypt::aead::AeadKey;
 use nullspace_crypt::hash::{BcsHashExt, Hash};
 use nullspace_structs::fragment::{Fragment, FragmentLeaf, FragmentNode, FragmentRoot};
+use nullspace_structs::server::ServerClient;
 use nullspace_structs::username::UserName;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::Config;
 use crate::database::{DATABASE, identity_exists};
@@ -20,6 +28,7 @@ use crate::server::get_server_client;
 
 const CHUNK_SIZE_BYTES: usize = 256 * 1024;
 const MAX_FANOUT: usize = 4096;
+type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AttachmentStatus {
@@ -48,13 +57,6 @@ pub async fn attachment_upload(
     Ok(upload_id)
 }
 
-fn nonce_for_leaf(index: u64) -> [u8; 24] {
-    let mut nonce = [0u8; 24];
-    nonce[..8].copy_from_slice(b"NSFRAG01");
-    nonce[8..16].copy_from_slice(&index.to_le_bytes());
-    nonce
-}
-
 async fn upload_inner(
     ctx: &AnyCtx<Config>,
     absolute_path: PathBuf,
@@ -78,54 +80,71 @@ async fn upload_inner(
     let mut file = tokio::fs::File::open(&absolute_path).await?;
     let total_size = file.metadata().await?.len();
     let content_key = AeadKey::random();
-    let mut uploaded_size = 0u64;
-    let mut leaf_index = 0u64;
-    let mut current_level: Vec<ChildRef> = Vec::new();
+    let uploaded_size = Arc::new(AtomicU64::new(0));
+    let mut current_level: Vec<(Hash, u64)> = Vec::new();
     let mut buf = vec![0u8; CHUNK_SIZE_BYTES];
+
+    let (job_tx, job_rx) = async_channel::bounded::<FragmentLeaf>(1);
+    let tasks = (0..32)
+        .map(|_| {
+            let ctx = ctx.clone();
+            let job_rx = job_rx.clone();
+            let server_name = server_name.clone();
+            let uploaded_size = uploaded_size.clone();
+            tokio::spawn(async move {
+                let client = get_server_client(&ctx, &server_name).await?;
+                while let Ok(leaf) = job_rx.recv().await {
+                    let leaf_len = leaf.data.len();
+                    let response = client.v1_upload_frag(auth, Fragment::Leaf(leaf), 0).await?;
+                    if let Err(err) = response {
+                        return Err(anyhow::anyhow!(err.to_string()));
+                    }
+                    let uploaded_size = uploaded_size
+                        .fetch_add(leaf_len as u64, std::sync::atomic::Ordering::Relaxed);
+                    emit_event(
+                        &ctx,
+                        Event::UploadProgress {
+                            id: upload_id,
+                            uploaded_size,
+                            total_size,
+                        },
+                    );
+                }
+                Ok(())
+            })
+        })
+        .collect::<Vec<_>>();
 
     loop {
         let read = file.read(&mut buf).await?;
         if read == 0 {
             break;
         }
-        let nonce = nonce_for_leaf(leaf_index);
+        let mut nonce = [0u8; 24];
+        rand::thread_rng().fill_bytes(&mut nonce);
         let ciphertext = content_key
             .encrypt(nonce, &buf[..read], &[])
             .map_err(|_| anyhow::anyhow!("chunk encryption failed"))?;
         let leaf = FragmentLeaf {
+            nonce,
             data: Bytes::from(ciphertext),
         };
         let hash = Fragment::Leaf(leaf.clone()).bcs_hash();
-        current_level.push(ChildRef {
-            hash,
-            size: read as u64,
-        });
-        let response = client.v1_upload_frag(auth, Fragment::Leaf(leaf), 0).await?;
-        if let Err(err) = response {
-            return Err(anyhow::anyhow!(err.to_string()));
-        }
-        uploaded_size = uploaded_size.saturating_add(read as u64);
-        emit_event(
-            ctx,
-            Event::UploadProgress {
-                id: upload_id,
-                uploaded_size,
-                total_size,
-            },
-        );
-        leaf_index = leaf_index.saturating_add(1);
+        job_tx.send(leaf).await?;
+        current_level.push((hash, read as u64));
     }
+    job_tx.close();
+    tasks.try_join().await?;
 
     let mut nodes: Vec<FragmentNode> = Vec::new();
     while current_level.len() > MAX_FANOUT {
         let mut next_level = Vec::new();
         for group in current_level.chunks(MAX_FANOUT) {
-            let pointers: Vec<nullspace_crypt::hash::Hash> =
-                group.iter().map(|child| child.hash).collect();
-            let size = group.iter().map(|child| child.size).sum();
-            let node = FragmentNode { size, pointers };
+            let children: Vec<(Hash, u64)> = group.iter().copied().collect();
+            let node = FragmentNode { children };
             let hash = Fragment::Node(node.clone()).bcs_hash();
-            next_level.push(ChildRef { hash, size });
+            let size = node.total_size();
+            next_level.push((hash, size));
             nodes.push(node);
         }
         current_level = next_level;
@@ -141,8 +160,7 @@ async fn upload_inner(
     let root = FragmentRoot {
         filename: SmolStr::new(filename),
         mime,
-        total_size,
-        pointers: current_level.into_iter().map(|child| child.hash).collect(),
+        children: current_level,
         content_key: Some(content_key),
     };
 
@@ -207,7 +225,7 @@ async fn download_inner(
     let part_path = final_path.with_extension("part");
     let mut file = tokio::fs::File::create(&part_path).await?;
 
-    if root.pointers.is_empty() {
+    if root.children.is_empty() {
         file.flush().await?;
         tokio::fs::rename(&part_path, &final_path).await?;
         emit_event(
@@ -220,48 +238,54 @@ async fn download_inner(
         return Ok(());
     }
 
-    let mut stack: Vec<Hash> = root.pointers.iter().rev().cloned().collect();
-    let mut leaf_index = 0u64;
-    let mut downloaded_size = 0u64;
+    let total_size = root.total_size();
+    file.set_len(total_size).await?;
 
-    while let Some(hash) = stack.pop() {
-        let response = client.v1_download_frag(hash).await?;
-        let frag = response
-            .map_err(|err| anyhow::anyhow!(err.to_string()))?
-            .ok_or_else(|| anyhow::anyhow!("missing fragment"))?;
-        if frag.bcs_hash() != hash {
-            return Err(anyhow::anyhow!("fragment hash mismatch"));
-        }
-        match frag {
-            Fragment::Node(node) => {
-                for child in node.pointers.iter().rev() {
-                    stack.push(*child);
+    let downloaded_size = Arc::new(AtomicU64::new(0));
+    let worker_count = root.children.len().min(4).max(1);
+    let chunk_size = root.children.len().div_ceil(worker_count);
+    let tasks = root
+        .children
+        .chunks(chunk_size)
+        .scan(0u64, |offset, chunk| {
+            let start_offset = *offset;
+            let chunk_size_sum: u64 = chunk.iter().map(|(_, size)| *size).sum();
+            *offset = offset.saturating_add(chunk_size_sum);
+            Some((start_offset, chunk.to_vec()))
+        })
+        .map(|(start_offset, chunk)| {
+            let ctx = ctx.clone();
+            let client = client.clone();
+            let root = root.clone();
+            let downloaded_size = downloaded_size.clone();
+            let part_path = part_path.clone();
+            async move {
+                let mut file = tokio::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&part_path)
+                    .await?;
+                let mut offset = start_offset;
+                for (hash, size) in chunk {
+                    download_fragment(
+                        client.as_ref(),
+                        &root,
+                        &ctx,
+                        download_id,
+                        &mut file,
+                        &downloaded_size,
+                        hash,
+                        offset,
+                    )
+                    .await?;
+                    offset = offset.saturating_add(size);
                 }
+                Ok::<(), anyhow::Error>(())
             }
-            Fragment::Leaf(leaf) => {
-                let plaintext = if let Some(key) = &root.content_key {
-                    let nonce = nonce_for_leaf(leaf_index);
-                    key.decrypt(nonce, &leaf.data, &[])
-                        .map_err(|_| anyhow::anyhow!("chunk decryption failed"))?
-                } else {
-                    leaf.data.to_vec()
-                };
-                file.write_all(&plaintext).await?;
-                downloaded_size = downloaded_size.saturating_add(plaintext.len() as u64);
-                emit_event(
-                    ctx,
-                    Event::DownloadProgress {
-                        id: download_id,
-                        downloaded_size,
-                        total_size: root.total_size,
-                    },
-                );
-                leaf_index = leaf_index.saturating_add(1);
-            }
-        }
-    }
+        })
+        .collect::<Vec<_>>();
+    tasks.try_join().await?;
 
-    if downloaded_size != root.total_size {
+    if downloaded_size.load(std::sync::atomic::Ordering::Relaxed) != total_size {
         return Err(anyhow::anyhow!("download size mismatch"));
     }
 
@@ -281,6 +305,69 @@ async fn download_inner(
         },
     );
     Ok(())
+}
+
+fn download_fragment<'a>(
+    client: &'a ServerClient,
+    root: &'a FragmentRoot,
+    ctx: &'a AnyCtx<Config>,
+    download_id: i64,
+    file: &'a mut tokio::fs::File,
+    downloaded_size: &'a AtomicU64,
+    hash: Hash,
+    start_offset: u64,
+) -> BoxFuture<'a, anyhow::Result<()>> {
+    Box::pin(async move {
+        let response = client.v1_download_frag(hash).await?;
+        let frag = response
+            .map_err(|err| anyhow::anyhow!(err.to_string()))?
+            .ok_or_else(|| anyhow::anyhow!("missing fragment"))?;
+        if frag.bcs_hash() != hash {
+            return Err(anyhow::anyhow!("fragment hash mismatch"));
+        }
+        match frag {
+            Fragment::Node(node) => {
+                let mut offset = start_offset;
+                for (child, size) in node.children.iter().copied() {
+                    download_fragment(
+                        client,
+                        root,
+                        ctx,
+                        download_id,
+                        file,
+                        downloaded_size,
+                        child,
+                        offset,
+                    )
+                    .await?;
+                    offset = offset.saturating_add(size);
+                }
+                Ok(())
+            }
+            Fragment::Leaf(leaf) => {
+                let plaintext = if let Some(key) = &root.content_key {
+                    key.decrypt(leaf.nonce, &leaf.data, &[])
+                        .map_err(|_| anyhow::anyhow!("chunk decryption failed"))?
+                } else {
+                    leaf.data.to_vec()
+                };
+                file.seek(SeekFrom::Start(start_offset)).await?;
+                file.write_all(&plaintext).await?;
+                let downloaded_size = downloaded_size
+                    .fetch_add(plaintext.len() as u64, std::sync::atomic::Ordering::Relaxed)
+                    .saturating_add(plaintext.len() as u64);
+                emit_event(
+                    ctx,
+                    Event::DownloadProgress {
+                        id: download_id,
+                        downloaded_size,
+                        total_size: root.total_size(),
+                    },
+                );
+                Ok(())
+            }
+        }
+    })
 }
 
 pub async fn attachment_status(ctx: &AnyCtx<Config>, id: Hash) -> anyhow::Result<AttachmentStatus> {
@@ -396,9 +483,4 @@ fn split_extension(filename: &str) -> (&str, &str) {
     } else {
         (stem, ext)
     }
-}
-
-struct ChildRef {
-    hash: nullspace_crypt::hash::Hash,
-    size: u64,
 }

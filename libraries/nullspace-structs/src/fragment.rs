@@ -5,7 +5,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_with::base64::{Base64, UrlSafe};
 use serde_with::formats::Unpadded;
-use serde_with::{FromInto, IfIsHumanReadable, serde_as};
+use serde_with::{Bytes as SerdeBytes, FromInto, IfIsHumanReadable, serde_as};
 use smol_str::SmolStr;
 
 use crate::event::EventPayload;
@@ -15,8 +15,7 @@ use crate::event::EventPayload;
 pub struct FragmentRoot {
     pub filename: SmolStr,
     pub mime: SmolStr,
-    pub total_size: u64,
-    pub pointers: Vec<Hash>,
+    pub children: Vec<(Hash, u64)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_key: Option<AeadKey>,
 }
@@ -24,8 +23,7 @@ pub struct FragmentRoot {
 /// A fragment node, which contains pointers to other fragment nodes and/or leaves.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FragmentNode {
-    pub size: u64,
-    pub pointers: Vec<Hash>,
+    pub children: Vec<(Hash, u64)>,
 }
 
 /// A fragment leaf, which must contain a single piece of data.
@@ -33,6 +31,8 @@ pub struct FragmentNode {
 #[derive(Serialize, Deserialize, Clone, Derivative)]
 #[derivative(Debug)]
 pub struct FragmentLeaf {
+    #[serde_as(as = "IfIsHumanReadable<Base64<UrlSafe, Unpadded>, SerdeBytes>")]
+    pub nonce: [u8; 24],
     #[derivative(Debug(format_with = "crate::debug_bytes_len"))]
     #[serde_as(as = "IfIsHumanReadable<Base64<UrlSafe, Unpadded>, FromInto<Vec<u8>>>")]
     pub data: Bytes,
@@ -44,6 +44,18 @@ pub struct FragmentLeaf {
 pub enum Fragment {
     Node(FragmentNode),
     Leaf(FragmentLeaf),
+}
+
+impl FragmentRoot {
+    pub fn total_size(&self) -> u64 {
+        self.children.iter().map(|(_, size)| *size).sum()
+    }
+}
+
+impl FragmentNode {
+    pub fn total_size(&self) -> u64 {
+        self.children.iter().map(|(_, size)| *size).sum()
+    }
 }
 
 impl EventPayload for FragmentRoot {

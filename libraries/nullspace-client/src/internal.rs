@@ -633,8 +633,11 @@ async fn convo_list(db: &sqlx::SqlitePool) -> anyhow::Result<Vec<ConvoSummary>> 
         let last_message = match (msg_id, sender_username, mime, body) {
             (Some(id), Some(sender_username), Some(mime), Some(body)) => {
                 let sender = UserName::parse(sender_username)?;
-                let body = decode_message_content(db, id, &sender, &mime, &body).await?;
-                Some(ConvoMessage {
+                let body = match decode_message_content(db, id, &sender, &mime, &body).await {
+                    Ok(body) => Some(body),
+                    Err(_) => None,
+                };
+                body.map(|body| ConvoMessage {
                     id,
                     convo_id: convo_id.clone(),
                     sender,
@@ -684,7 +687,12 @@ async fn convo_history(
     let mut out = Vec::with_capacity(rows.len());
     for (id, sender_username, mime, body, received_at, send_error) in rows {
         let sender = UserName::parse(sender_username)?;
-        let body = decode_message_content(db, id, &sender, &mime, &body).await?;
+        let body = match decode_message_content(db, id, &sender, &mime, &body).await {
+            Ok(body) => body,
+            Err(_) => {
+                continue;
+            }
+        };
         out.push(ConvoMessage {
             id,
             convo_id: convo_id.clone(),
@@ -715,11 +723,21 @@ async fn decode_message_content(
             invite_id: message_id,
         }),
         mime if mime == FragmentRoot::mime() => {
-            let root: FragmentRoot = serde_json::from_slice(body)?;
+            let root = match serde_json::from_slice::<FragmentRoot>(body) {
+                Ok(root) => root,
+                Err(err) => {
+                    tracing::warn!(
+                        message_id,
+                        error = %err,
+                        "failed to decode attachment root"
+                    );
+                    return Err(anyhow::anyhow!("invalid attachment root"));
+                }
+            };
             let id = store_attachment_root(&mut *db.acquire().await?, sender, &root).await?;
             Ok(MessageContent::Attachment {
                 id,
-                size: root.total_size,
+                size: root.total_size(),
                 mime: root.mime,
             })
         }
