@@ -6,7 +6,7 @@ use tracing::warn;
 use nullspace_crypt::hash::BcsHashExt;
 use nullspace_structs::Blob;
 use nullspace_structs::e2ee::{DeviceSigned, HeaderEncrypted};
-use nullspace_structs::event::{Event, Recipient};
+use nullspace_structs::event::{Event, EventPayload, Recipient};
 use nullspace_structs::server::{MailboxId, ServerName};
 use nullspace_structs::timestamp::NanoTimestamp;
 
@@ -20,6 +20,7 @@ use crate::long_poll::LONG_POLLER;
 use crate::server::get_server_client;
 
 use super::dm_common::{device_auth, refresh_own_server_name};
+use crate::attachments::store_attachment_root_conn;
 
 pub(super) async fn dm_recv_loop(ctx: &AnyCtx<Config>) {
     loop {
@@ -154,6 +155,13 @@ async fn process_mailbox_entry(
         sender_username.clone()
     };
     let mut conn = db.acquire().await?;
+    if content.mime == nullspace_structs::fragment::FragmentRoot::mime() {
+        if let Ok(root) =
+            serde_json::from_slice::<nullspace_structs::fragment::FragmentRoot>(&content.body)
+        {
+            let _ = store_attachment_root_conn(&mut conn, &sender_username, &root).await;
+        }
+    }
     let convo_id = ensure_convo_id(&mut *conn, "direct", peer_username.as_str()).await?;
     sqlx::query(
         "INSERT OR IGNORE INTO convo_messages \

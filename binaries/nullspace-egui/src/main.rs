@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use clap::Parser;
 
-use egui::{Modal, Spinner, style::ScrollStyle};
+use egui::{Modal, Spinner};
 use egui_file_dialog::FileDialog;
 use nullspace_client::{Client, Config, internal::Event};
 use nullspace_crypt::signing::SigningPublic;
@@ -63,6 +63,10 @@ struct AppState {
     upload_progress: BTreeMap<i64, (u64, u64)>,
     upload_done: BTreeMap<i64, FragmentRoot>,
     upload_error: BTreeMap<i64, String>,
+    download_progress: BTreeMap<i64, (u64, u64)>,
+    download_done: BTreeMap<i64, PathBuf>,
+    download_error: BTreeMap<i64, String>,
+    download_for_msg: BTreeMap<i64, i64>,
 }
 
 impl NullspaceApp {
@@ -207,6 +211,33 @@ impl eframe::App for NullspaceApp {
                     tracing::warn!(id, error = %error, "upload failed event");
                     self.state.upload_progress.remove(&id);
                     self.state.upload_error.insert(id, error.to_string());
+                }
+                Event::DownloadProgress {
+                    id,
+                    downloaded_size,
+                    total_size,
+                } => {
+                    tracing::debug!(id, downloaded_size, total_size, "download progress event");
+                    self.state
+                        .download_progress
+                        .insert(id, (downloaded_size, total_size));
+                }
+                Event::DownloadDone { id, absolute_path } => {
+                    tracing::debug!(id, path = ?absolute_path, "download done event");
+                    self.state.download_progress.remove(&id);
+                    self.state.download_done.insert(id, absolute_path);
+                    self.state.download_error.remove(&id);
+                    if let Some(path) = self.state.download_done.get(&id) {
+                        let path = path.clone();
+                        std::thread::spawn(move || {
+                            let _ = open::that(path);
+                        });
+                    }
+                }
+                Event::DownloadFailed { id, error } => {
+                    tracing::warn!(id, error = %error, "download failed event");
+                    self.state.download_progress.remove(&id);
+                    self.state.download_error.insert(id, error.to_string());
                 }
             }
         }

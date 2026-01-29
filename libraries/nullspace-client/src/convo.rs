@@ -1,9 +1,9 @@
 use anyctx::AnyCtx;
-use bytes::Bytes;
 use futures_concurrency::future::Race;
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 use std::str::FromStr;
+use nullspace_crypt::hash::Hash;
 use nullspace_structs::group::GroupId;
 use nullspace_structs::timestamp::NanoTimestamp;
 use nullspace_structs::username::UserName;
@@ -62,10 +62,22 @@ pub struct ConvoMessage {
     pub id: i64,
     pub convo_id: ConvoId,
     pub sender: UserName,
-    pub mime: SmolStr,
-    pub body: Bytes,
+    pub body: MessageContent,
     pub send_error: Option<String>,
     pub received_at: Option<NanoTimestamp>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageContent {
+    PlainText(String),
+    Markdown(String),
+    Attachment {
+        id: Hash,
+        size: u64,
+        mime: SmolStr,
+    },
+    GroupInvite { invite_id: i64 },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

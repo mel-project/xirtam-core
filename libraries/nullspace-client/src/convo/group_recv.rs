@@ -23,6 +23,7 @@ use super::ConvoId;
 use super::group::{GroupRecord, load_group, load_groups};
 use super::rekey::process_group_rekey_entry;
 use super::roster::GroupRoster;
+use crate::attachments::store_attachment_root_conn;
 
 #[derive(Clone, Copy)]
 enum GroupMailboxKind {
@@ -189,6 +190,13 @@ async fn process_group_message_entry(
         return Ok(());
     }
     let mut conn = db.acquire().await?;
+    if content.mime == nullspace_structs::fragment::FragmentRoot::mime() {
+        if let Ok(root) =
+            serde_json::from_slice::<nullspace_structs::fragment::FragmentRoot>(&content.body)
+        {
+            let _ = store_attachment_root_conn(&mut conn, &sender, &root).await;
+        }
+    }
     let convo_id = ensure_convo_id(&mut *conn, "group", &group.group_id.to_string()).await?;
     sqlx::query(
         "INSERT OR IGNORE INTO convo_messages \

@@ -1,5 +1,6 @@
 mod c_api;
 mod config;
+mod attachments;
 mod convo;
 mod database;
 mod directory;
@@ -11,7 +12,6 @@ mod main_loop;
 mod medium_keys;
 mod retry;
 mod server;
-mod upload;
 mod user_info;
 
 use std::sync::mpsc::Sender;

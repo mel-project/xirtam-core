@@ -111,7 +111,7 @@ impl ServerProtocol for ServerRpc {
     async fn v1_upload_frag(
         &self,
         auth: AuthToken,
-        frag: nullspace_structs::fragment::Fragment<'static>,
+        frag: nullspace_structs::fragment::Fragment,
         ttl: u32,
     ) -> Result<(), ServerRpcError> {
         fragment::upload_frag(auth, frag, ttl).await
@@ -120,7 +120,7 @@ impl ServerProtocol for ServerRpc {
     async fn v1_download_frag(
         &self,
         hash: nullspace_crypt::hash::Hash,
-    ) -> Result<Option<nullspace_structs::fragment::Fragment<'static>>, ServerRpcError> {
+    ) -> Result<Option<nullspace_structs::fragment::Fragment>, ServerRpcError> {
         fragment::download_frag(hash).await
     }
 

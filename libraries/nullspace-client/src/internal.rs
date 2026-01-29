@@ -7,8 +7,9 @@ use nullspace_crypt::dh::DhSecret;
 use nullspace_crypt::hash::BcsHashExt;
 use nullspace_crypt::signing::{Signable, Signature};
 use nullspace_structs::certificate::{CertificateChain, DeviceSecret};
+use nullspace_structs::event::EventPayload;
 use nullspace_structs::fragment::FragmentRoot;
-use nullspace_structs::group::GroupId;
+use nullspace_structs::group::{GroupId, GroupInviteMsg};
 use nullspace_structs::server::{AuthToken, ServerClient, ServerName, SignedMediumPk};
 use nullspace_structs::timestamp::{NanoTimestamp, Timestamp};
 use nullspace_structs::username::{UserDescriptor, UserName};
@@ -23,7 +24,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::config::Config;
-pub use crate::convo::{ConvoId, ConvoMessage, ConvoSummary};
+pub use crate::convo::{ConvoId, ConvoMessage, ConvoSummary, MessageContent};
 use crate::convo::{
     GroupRoster, accept_invite, create_group, invite, load_group, parse_convo_id, queue_message,
 };
@@ -31,7 +32,7 @@ use crate::database::{DATABASE, DbNotify, identity_exists};
 use crate::directory::DIR_CLIENT;
 use crate::identity::Identity;
 use crate::server::get_server_client;
-use crate::upload;
+use crate::attachments::{self, store_attachment_root};
 
 /// The internal JSON-RPC interface exposed by nullspace-client.
 #[nanorpc_derive]
@@ -77,6 +78,11 @@ pub trait InternalProtocol {
         absolute_path: PathBuf,
         mime: SmolStr,
     ) -> Result<i64, InternalRpcError>;
+    async fn download_start(
+        &self,
+        attachment_id: nullspace_crypt::hash::Hash,
+        save_dir: PathBuf,
+    ) -> Result<i64, InternalRpcError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -100,6 +106,19 @@ pub enum Event {
         root: FragmentRoot,
     },
     UploadFailed {
+        id: i64,
+        error: String,
+    },
+    DownloadProgress {
+        id: i64,
+        downloaded_size: u64,
+        total_size: u64,
+    },
+    DownloadDone {
+        id: i64,
+        absolute_path: PathBuf,
+    },
+    DownloadFailed {
         id: i64,
         error: String,
     },
@@ -369,7 +388,15 @@ impl InternalProtocol for InternalImpl {
         absolute_path: PathBuf,
         mime: SmolStr,
     ) -> Result<i64, InternalRpcError> {
-        upload::upload_start(&self.ctx, absolute_path, mime).await
+        attachments::upload_start(&self.ctx, absolute_path, mime).await
+    }
+
+    async fn download_start(
+        &self,
+        attachment_id: nullspace_crypt::hash::Hash,
+        save_dir: PathBuf,
+    ) -> Result<i64, InternalRpcError> {
+        attachments::download_start(&self.ctx, attachment_id, save_dir).await
     }
 }
 
@@ -581,12 +608,12 @@ async fn convo_list(db: &sqlx::SqlitePool) -> anyhow::Result<Vec<ConvoSummary>> 
         let last_message = match (msg_id, sender_username, mime, body) {
             (Some(id), Some(sender_username), Some(mime), Some(body)) => {
                 let sender = UserName::parse(sender_username)?;
+                let body = decode_message_content(db, id, &sender, &mime, &body).await?;
                 Some(ConvoMessage {
                     id,
                     convo_id: convo_id.clone(),
                     sender,
-                    mime: smol_str::SmolStr::new(mime),
-                    body: Bytes::from(body),
+                    body,
                     send_error,
                     received_at: received_at.map(|ts| NanoTimestamp(ts as u64)),
                 })
@@ -632,15 +659,45 @@ async fn convo_history(
     let mut out = Vec::with_capacity(rows.len());
     for (id, sender_username, mime, body, received_at, send_error) in rows {
         let sender = UserName::parse(sender_username)?;
+        let body = decode_message_content(db, id, &sender, &mime, &body).await?;
         out.push(ConvoMessage {
             id,
             convo_id: convo_id.clone(),
             sender,
-            mime: smol_str::SmolStr::new(mime),
-            body: Bytes::from(body),
+            body,
             send_error,
             received_at: received_at.map(|ts| NanoTimestamp(ts as u64)),
         });
     }
     Ok(out)
+}
+
+async fn decode_message_content(
+    db: &sqlx::SqlitePool,
+    message_id: i64,
+    sender: &UserName,
+    mime: &str,
+    body: &[u8],
+) -> anyhow::Result<MessageContent> {
+    match mime {
+        "text/plain" => Ok(MessageContent::PlainText(
+            String::from_utf8_lossy(body).to_string(),
+        )),
+        "text/markdown" => Ok(MessageContent::Markdown(
+            String::from_utf8_lossy(body).to_string(),
+        )),
+        mime if mime == GroupInviteMsg::mime() => Ok(MessageContent::GroupInvite {
+            invite_id: message_id,
+        }),
+        mime if mime == FragmentRoot::mime() => {
+            let root: FragmentRoot = serde_json::from_slice(body)?;
+            let id = store_attachment_root(db, sender, &root).await?;
+            Ok(MessageContent::Attachment {
+                id,
+                size: root.total_size,
+                mime: root.mime,
+            })
+        }
+        _ => Ok(MessageContent::PlainText("Unsupported message".to_string())),
+    }
 }

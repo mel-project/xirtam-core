@@ -52,14 +52,14 @@ impl FragmentDb {
         Ok(())
     }
 
-    pub async fn load(&self, hash: Hash) -> Result<Option<Fragment<'static>>, ServerRpcError> {
+    pub async fn load(&self, hash: Hash) -> Result<Option<Fragment>, ServerRpcError> {
         let path = self.path_for_hash(&hash);
         let bytes = match tokio::fs::read(&path).await {
             Ok(bytes) => bytes,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(err) => return Err(fatal_retry_later(err)),
         };
-        let frag: Fragment<'static> =
+        let frag: Fragment =
             bcs::from_bytes(&bytes).map_err(|_| fatal_retry_later("invalid fragment bcs"))?;
         Ok(Some(frag))
     }
@@ -67,7 +67,7 @@ impl FragmentDb {
 
 pub async fn upload_frag(
     auth: AuthToken,
-    frag: Fragment<'static>,
+    frag: Fragment,
     ttl: u32,
 ) -> Result<(), ServerRpcError> {
     if !device::auth_token_exists(auth).await? {
@@ -89,7 +89,7 @@ pub async fn upload_frag(
     Ok(())
 }
 
-pub async fn download_frag(hash: Hash) -> Result<Option<Fragment<'static>>, ServerRpcError> {
+pub async fn download_frag(hash: Hash) -> Result<Option<Fragment>, ServerRpcError> {
     // Intentionally avoids hitting SQLite; the janitor is responsible for deleting expired items.
     FRAGMENTS.load(hash).await
 }

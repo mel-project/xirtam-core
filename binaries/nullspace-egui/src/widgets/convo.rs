@@ -1,14 +1,13 @@
 use bytes::Bytes;
 use chrono::{DateTime, Local, NaiveDate};
 use eframe::egui::{Key, Response, RichText, Widget};
-use egui::text::LayoutJob;
-use egui::{Button, Color32, Label, ProgressBar, ScrollArea, Stroke, TextEdit, TextFormat};
-use egui_file_dialog::FileDialog;
+use egui::{Button, Color32, Label, ProgressBar, ScrollArea, TextEdit};
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
 use nullspace_client::internal::{ConvoId, ConvoMessage};
 use nullspace_structs::event::EventPayload;
-use nullspace_structs::group::{GroupId, GroupInviteMsg};
+use nullspace_structs::fragment::FragmentRoot;
+use nullspace_structs::group::GroupId;
 use nullspace_structs::timestamp::NanoTimestamp;
 use pollster::FutureExt;
 use smol_str::SmolStr;
@@ -16,12 +15,11 @@ use tracing::debug;
 
 use crate::NullspaceApp;
 use crate::promises::flatten_rpc;
-use crate::utils::color::username_color;
-use crate::utils::markdown::layout_md_raw;
 use crate::utils::units::{format_filesize, unit_for_bytes};
+use crate::widgets::content::Content;
 use crate::widgets::group_roster::GroupRoster;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::path::PathBuf;
 
 const INITIAL_LIMIT: u16 = 100;
 const PAGE_LIMIT: u16 = 100;
@@ -299,7 +297,43 @@ fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId
                     .text(format!("{uploaded_text}/{total_text} {unit_suffix}")),
             );
         } else if let Some(done) = app.state.upload_done.get(in_progress) {
-            // todo
+            let upload_id = *in_progress;
+            let root = done.clone();
+            let Ok(body) = serde_json::to_vec(&root) else {
+                app.state
+                    .upload_error
+                    .insert(upload_id, "failed to encode attachment".into());
+                return;
+            };
+            let rpc = app.client.rpc();
+            let convo_id = convo_id.clone();
+            tokio::spawn(async move {
+                let _ = flatten_rpc(
+                    rpc.convo_send(
+                        convo_id,
+                        SmolStr::new(FragmentRoot::mime()),
+                        Bytes::from(body),
+                    )
+                    .await,
+                );
+            });
+            *attachment = None;
+            app.state.upload_done.remove(&upload_id);
+            app.state.upload_progress.remove(&upload_id);
+            app.state.upload_error.remove(&upload_id);
+        } else if let Some(error) = app.state.upload_error.get(in_progress) {
+            ui.label(
+                RichText::new(format!("Upload failed: {error}"))
+                    .color(Color32::RED)
+                    .size(11.0),
+            );
+            if ui.button("Clear").clicked() {
+                let upload_id = *in_progress;
+                *attachment = None;
+                app.state.upload_done.remove(&upload_id);
+                app.state.upload_progress.remove(&upload_id);
+                app.state.upload_error.remove(&upload_id);
+            }
         } else {
             ui.spinner();
         }
@@ -390,99 +424,15 @@ fn render_roster(
 }
 
 fn render_row(ui: &mut eframe::egui::Ui, item: &ConvoMessage, app: &mut NullspaceApp) {
-    let mut job = LayoutJob::default();
     let timestamp = format_timestamp(item.received_at);
-    let mut base_text_format = TextFormat {
-        color: Color32::BLACK,
-        ..Default::default()
-    };
-    if item.send_error.is_some() {
-        base_text_format.strikethrough = Stroke::new(1.0, Color32::BLACK);
-    }
-
-    job.append(
-        &format!("[{timestamp}] "),
-        0.0,
-        TextFormat {
-            color: Color32::GRAY,
-            ..base_text_format.clone()
-        },
-    );
-    let sender_color = username_color(&item.sender);
-    job.append(
-        &format!("{}: ", item.sender),
-        0.0,
-        TextFormat {
-            color: sender_color,
-            ..base_text_format.clone()
-        },
-    );
-    match item.mime.as_str() {
-        mime if mime == GroupInviteMsg::mime() => {
-            let invite = serde_json::from_slice::<GroupInviteMsg>(&item.body).ok();
-            let label = invite
-                .as_ref()
-                .map(|invite| {
-                    format!(
-                        "Invitation to group {}",
-                        short_group_id(&invite.descriptor.id())
-                    )
-                })
-                .unwrap_or_else(|| "Invitation to group".to_string());
-            job.append(
-                &label,
-                0.0,
-                TextFormat {
-                    color: Color32::GRAY,
-                    ..base_text_format.clone()
-                },
-            );
-            ui.horizontal(|ui| {
-                ui.label(job);
-                if ui.link("Accept").clicked() {
-                    let rpc = app.client.rpc();
-                    let dm_id = item.id;
-                    tokio::spawn(async move {
-                        let _ = flatten_rpc(rpc.group_accept_invite(dm_id).await);
-                    });
-                }
-            });
-        }
-        "text/plain" => {
-            job.append(
-                &String::from_utf8_lossy(&item.body),
-                0.0,
-                base_text_format.clone(),
-            );
-            ui.label(job);
-        }
-        "text/markdown" => {
-            layout_md_raw(
-                &mut job,
-                base_text_format.clone(),
-                &String::from_utf8_lossy(&item.body),
-            );
-            ui.label(job);
-        }
-        other => {
-            job.append(
-                &format!("unknown mime {other}"),
-                0.0,
-                TextFormat {
-                    color: Color32::RED,
-                    ..base_text_format.clone()
-                },
-            );
-            ui.label(job);
-        }
-    }
-    if let Some(err) = &item.send_error {
-        ui.label(
-            RichText::new(format!("Send failed: {err}"))
-                .color(Color32::RED)
-                .size(11.0),
-        );
-    }
+    egui::Grid::new(ui.id().with(item.id))
+        .num_columns(2)
+        // .min_col_width(72.0)
+        .show(ui, |ui| {
+            ui.label(RichText::new(format!("[{timestamp}]")).color(Color32::GRAY));
+            ui.add(Content { app, message: item });
+            ui.end_row();
+        });
 }
 
 fn format_timestamp(ts: Option<NanoTimestamp>) -> String {
@@ -520,4 +470,13 @@ fn convo_key(convo_id: &ConvoId) -> String {
         ConvoId::Direct { peer } => format!("direct:{}", peer.as_str()),
         ConvoId::Group { group_id } => format!("group:{}", group_id),
     }
+}
+
+pub(crate) fn default_download_dir() -> PathBuf {
+    if let Some(dir) = dirs::download_dir() {
+        return dir;
+    }
+    dirs::config_dir()
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
 }

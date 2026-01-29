@@ -5,7 +5,7 @@ use notify_rust::Notification;
 use rodio::{Decoder, OutputStreamBuilder, Sink};
 use std::sync::mpsc::{Receiver, Sender as StdSender};
 use tokio::sync::mpsc::Sender as TokioSender;
-use nullspace_client::internal::{ConvoId, Event, InternalClient};
+use nullspace_client::internal::{ConvoId, Event, InternalClient, MessageContent};
 
 use crate::promises::flatten_rpc;
 
@@ -35,7 +35,16 @@ pub async fn event_loop(
                                     && message.received_at.unwrap_or_default().0 > max_notified
                                 {
                                     max_notified = message.received_at.unwrap_or_default().0;
-                                    let body = String::from_utf8_lossy(&message.body).to_string();
+                                    let body = match &message.body {
+                                        MessageContent::PlainText(text) => text.clone(),
+                                        MessageContent::Markdown(text) => text.clone(),
+                                        MessageContent::Attachment { .. } => {
+                                            "Attachment".to_string()
+                                        }
+                                        MessageContent::GroupInvite { .. } => {
+                                            "Group invite".to_string()
+                                        }
+                                    };
                                     if let Err(err) = Notification::new()
                                         .summary(&format!("Message from {}", message.sender))
                                         .body(&body)

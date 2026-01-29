@@ -101,7 +101,7 @@ pub trait ServerProtocol {
     async fn v1_upload_frag(
         &self,
         auth: AuthToken,
-        frag: Fragment<'static>,
+        frag: Fragment,
         ttl: u32,
     ) -> Result<(), ServerRpcError>;
 
@@ -109,7 +109,7 @@ pub trait ServerProtocol {
     async fn v1_download_frag(
         &self,
         hash: Hash,
-    ) -> Result<Option<Fragment<'static>>, ServerRpcError>;
+    ) -> Result<Option<Fragment>, ServerRpcError>;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

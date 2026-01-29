@@ -11,12 +11,14 @@ use nullspace_structs::certificate::CertificateChain;
 use nullspace_structs::e2ee::{DeviceSigned, HeaderEncrypted};
 use nullspace_structs::event::{Event, Recipient};
 use nullspace_structs::group::GroupMessage;
+use nullspace_structs::event::EventPayload;
 use nullspace_structs::server::{AuthToken, MailboxId, SignedMediumPk};
 use nullspace_structs::timestamp::NanoTimestamp;
 use nullspace_structs::username::UserName;
 use smol_str::SmolStr;
 use tracing::warn;
 
+use crate::attachments::store_attachment_root_conn;
 use crate::config::Config;
 use crate::database::{DATABASE, DbNotify, ensure_convo_id};
 use crate::identity::Identity;
@@ -50,6 +52,12 @@ pub async fn queue_message(
     .bind(sent_at.0 as i64)
     .fetch_one(&mut *tx)
     .await?;
+    if mime == nullspace_structs::fragment::FragmentRoot::mime() {
+        if let Ok(root) = serde_json::from_slice::<nullspace_structs::fragment::FragmentRoot>(body)
+        {
+            let _ = store_attachment_root_conn(&mut *tx, sender, &root).await;
+        }
+    }
     Ok(row.0)
 }
 
