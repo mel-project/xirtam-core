@@ -382,9 +382,19 @@ pub async fn attachment_status(ctx: &AnyCtx<Config>, id: Hash) -> anyhow::Result
             .fetch_one(ctx.get(DATABASE))
             .await?;
     let frag_root: FragmentRoot = bcs::from_bytes(&root_bytes)?;
+    let saved_to = if let Some(path) = dl_path.map(PathBuf::from) {
+        match tokio::fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() && metadata.len() == frag_root.total_size() => {
+                Some(path)
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
     Ok(AttachmentStatus {
         frag_root,
-        saved_to: dl_path.map(|s| s.into()),
+        saved_to,
     })
 }
 

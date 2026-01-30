@@ -18,6 +18,7 @@ use tokio::{
 use url::Url;
 
 use crate::events::{event_loop, spawn_audio_thread};
+use crate::utils::image::ImageCache;
 use crate::utils::prefs::PrefData;
 
 mod events;
@@ -48,6 +49,7 @@ struct NullspaceApp {
     focused: Arc<AtomicBool>,
     prefs_path: PathBuf,
     file_dialog: FileDialog,
+    images: ImageCache,
 
     state: AppState,
 }
@@ -59,6 +61,8 @@ struct AppState {
     error_dialog: Option<String>,
     prefs: PrefData,
     last_saved_prefs: PrefData,
+
+    attach_updates: u64,
 
     upload_progress: BTreeMap<i64, (u64, u64)>,
     upload_done: BTreeMap<i64, FragmentRoot>,
@@ -162,6 +166,7 @@ impl NullspaceApp {
             focused,
             prefs_path,
             file_dialog: FileDialog::new(),
+            images: ImageCache::new(),
             state: AppState {
                 prefs: prefs.clone(),
                 last_saved_prefs: prefs,
@@ -205,11 +210,13 @@ impl eframe::App for NullspaceApp {
                     self.state.upload_progress.remove(&id);
                     self.state.upload_done.insert(id, root);
                     self.state.upload_error.remove(&id);
+                    self.state.attach_updates += 1;
                 }
                 Event::UploadFailed { id, error } => {
                     tracing::warn!(id, error = %error, "upload failed event");
                     self.state.upload_progress.remove(&id);
                     self.state.upload_error.insert(id, error.to_string());
+                    self.state.attach_updates += 1;
                 }
                 Event::DownloadProgress {
                     id,
@@ -225,11 +232,13 @@ impl eframe::App for NullspaceApp {
                     tracing::debug!(id, path = ?absolute_path, "download done event");
                     self.state.download_progress.remove(&id);
                     self.state.download_error.remove(&id);
+                    self.state.attach_updates += 1;
                 }
                 Event::DownloadFailed { id, error } => {
                     tracing::warn!(id, error = %error, "download failed event");
                     self.state.download_progress.remove(&id);
                     self.state.download_error.insert(id, error.to_string());
+                    self.state.attach_updates += 1;
                 }
             }
         }
@@ -268,7 +277,7 @@ impl eframe::App for NullspaceApp {
                 self.state.last_saved_prefs = self.state.prefs.clone();
             }
         }
-        ctx.request_repaint_after(Duration::from_millis(200));
+        ctx.request_repaint_after(Duration::from_millis(500));
     }
 }
 
