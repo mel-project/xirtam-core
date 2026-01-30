@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::utils::color::username_color;
 
 use eframe::egui::{Response, RichText, Widget};
-use egui::{Color32, ImageSource, TextFormat};
+use egui::{Color32, TextFormat};
 use egui::{TextStyle, text::LayoutJob};
 use egui_hooks::UseHookExt;
 use nullspace_client::internal::MessageContent;
