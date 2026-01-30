@@ -19,7 +19,6 @@ use tokio::{
 use url::Url;
 
 use crate::events::{event_loop, spawn_audio_thread};
-use crate::utils::image::ImageCache;
 use crate::utils::prefs::PrefData;
 
 mod events;
@@ -50,7 +49,6 @@ struct NullspaceApp {
     focused: Arc<AtomicBool>,
     prefs_path: PathBuf,
     file_dialog: FileDialog,
-    images: ImageCache,
 
     state: AppState,
 }
@@ -81,6 +79,7 @@ impl NullspaceApp {
         prefs_path: PathBuf,
         prefs: PrefData,
     ) -> Self {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         cc.egui_ctx.set_visuals(egui::Visuals::light());
         cc.egui_ctx.style_mut(|style| {
             style.spacing.item_spacing = egui::vec2(6.0, 6.0);
@@ -166,7 +165,6 @@ impl NullspaceApp {
             focused,
             prefs_path,
             file_dialog: FileDialog::new(),
-            images: ImageCache::new(),
             state: AppState {
                 prefs: prefs.clone(),
                 last_saved_prefs: prefs,
@@ -219,25 +217,46 @@ impl eframe::App for NullspaceApp {
                     self.state.attach_updates += 1;
                 }
                 Event::DownloadProgress {
-                    id,
+                    attachment_id,
                     downloaded_size,
                     total_size,
                 } => {
-                    tracing::debug!(id, downloaded_size, total_size, "download progress event");
+                    tracing::debug!(
+                        attachment_id = ?attachment_id,
+                        downloaded_size,
+                        total_size,
+                        "download progress event"
+                    );
                     self.state
                         .download_progress
-                        .insert(id, (downloaded_size, total_size));
+                        .insert(attachment_id, (downloaded_size, total_size));
                 }
-                Event::DownloadDone { id, absolute_path } => {
-                    tracing::debug!(id, path = ?absolute_path, "download done event");
-                    self.state.download_progress.remove(&id);
-                    self.state.download_error.remove(&id);
+                Event::DownloadDone {
+                    attachment_id,
+                    absolute_path,
+                } => {
+                    tracing::debug!(
+                        attachment_id = ?attachment_id,
+                        path = ?absolute_path,
+                        "download done event"
+                    );
+                    self.state.download_progress.remove(&attachment_id);
+                    self.state.download_error.remove(&attachment_id);
                     self.state.attach_updates += 1;
                 }
-                Event::DownloadFailed { id, error } => {
-                    tracing::warn!(id, error = %error, "download failed event");
-                    self.state.download_progress.remove(&id);
-                    self.state.download_error.insert(id, error.to_string());
+                Event::DownloadFailed {
+                    attachment_id,
+                    error,
+                } => {
+                    tracing::warn!(
+                        attachment_id = ?attachment_id,
+                        error = %error,
+                        "download failed event"
+                    );
+                    self.state.download_progress.remove(&attachment_id);
+                    self.state
+                        .download_error
+                        .insert(attachment_id, error.to_string());
                     self.state.attach_updates += 1;
                 }
             }
@@ -287,6 +306,7 @@ fn main() -> eframe::Result<()> {
             "nullspace=debug,nullspace_egui=debug",
         ))
         .init();
+
     let cli = Cli::parse();
     let runtime = Runtime::new().expect("tokio runtime");
     let _guard = runtime.enter();

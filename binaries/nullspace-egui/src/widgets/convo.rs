@@ -21,8 +21,8 @@ use crate::widgets::group_roster::GroupRoster;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-const INITIAL_LIMIT: u16 = 100;
-const PAGE_LIMIT: u16 = 100;
+const INITIAL_LIMIT: u16 = 10;
+const PAGE_LIMIT: u16 = 10;
 
 pub struct Convo<'a>(pub &'a mut NullspaceApp, pub ConvoId);
 
@@ -458,13 +458,4 @@ fn convo_key(convo_id: &ConvoId) -> String {
         ConvoId::Direct { peer } => format!("direct:{}", peer.as_str()),
         ConvoId::Group { group_id } => format!("group:{}", group_id),
     }
-}
-
-pub(crate) fn default_download_dir() -> PathBuf {
-    if let Some(dir) = dirs::download_dir() {
-        return dir;
-    }
-    dirs::config_dir()
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."))
 }

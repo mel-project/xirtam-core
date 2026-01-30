@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use nanorpc::nanorpc_derive;
 use nullspace_crypt::dh::DhSecret;
-use nullspace_crypt::hash::BcsHashExt;
+use nullspace_crypt::hash::{BcsHashExt, Hash};
 use nullspace_crypt::signing::{Signable, Signature};
 use nullspace_structs::certificate::{CertificateChain, DeviceSecret};
 use nullspace_structs::event::EventPayload;
@@ -82,7 +82,7 @@ pub trait InternalProtocol {
         &self,
         attachment_id: nullspace_crypt::hash::Hash,
         save_dir: PathBuf,
-    ) -> Result<i64, InternalRpcError>;
+    ) -> Result<Hash, InternalRpcError>;
     async fn attachment_status(
         &self,
         attachment_id: nullspace_crypt::hash::Hash,
@@ -114,16 +114,16 @@ pub enum Event {
         error: String,
     },
     DownloadProgress {
-        id: i64,
+        attachment_id: Hash,
         downloaded_size: u64,
         total_size: u64,
     },
     DownloadDone {
-        id: i64,
+        attachment_id: Hash,
         absolute_path: PathBuf,
     },
     DownloadFailed {
-        id: i64,
+        attachment_id: Hash,
         error: String,
     },
 }
@@ -401,7 +401,7 @@ impl InternalProtocol for InternalImpl {
         &self,
         attachment_id: nullspace_crypt::hash::Hash,
         save_dir: PathBuf,
-    ) -> Result<i64, InternalRpcError> {
+    ) -> Result<Hash, InternalRpcError> {
         attachments::attachment_download(&self.ctx, attachment_id, save_dir)
             .await
             .map_err(map_anyhow_err)

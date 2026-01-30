@@ -178,31 +178,29 @@ pub async fn attachment_download(
     ctx: &AnyCtx<Config>,
     attachment_id: Hash,
     save_dir: PathBuf,
-) -> anyhow::Result<i64> {
+) -> anyhow::Result<Hash> {
     if !save_dir.is_absolute() {
         return Err(anyhow::anyhow!("save dir must be absolute"));
     }
-    let download_id = rand::random();
     let ctx = ctx.clone();
     tokio::spawn(async move {
-        if let Err(err) = download_inner(&ctx, attachment_id, save_dir, download_id).await {
+        if let Err(err) = download_inner(&ctx, attachment_id, save_dir).await {
             emit_event(
                 &ctx,
                 Event::DownloadFailed {
-                    id: download_id,
+                    attachment_id,
                     error: err.to_string(),
                 },
             );
         }
     });
-    Ok(download_id)
+    Ok(attachment_id)
 }
 
 async fn download_inner(
     ctx: &AnyCtx<Config>,
     attachment_id: Hash,
     save_dir: PathBuf,
-    download_id: i64,
 ) -> anyhow::Result<()> {
     let db = ctx.get(DATABASE);
     if !identity_exists(db).await? {
@@ -231,7 +229,7 @@ async fn download_inner(
         emit_event(
             ctx,
             Event::DownloadDone {
-                id: download_id,
+                attachment_id,
                 absolute_path: final_path,
             },
         );
@@ -270,7 +268,7 @@ async fn download_inner(
                         client.as_ref(),
                         &root,
                         &ctx,
-                        download_id,
+                        attachment_id,
                         &mut file,
                         &downloaded_size,
                         hash,
@@ -300,7 +298,7 @@ async fn download_inner(
     emit_event(
         ctx,
         Event::DownloadDone {
-            id: download_id,
+            attachment_id,
             absolute_path: final_path,
         },
     );
@@ -311,7 +309,7 @@ fn download_fragment<'a>(
     client: &'a ServerClient,
     root: &'a FragmentRoot,
     ctx: &'a AnyCtx<Config>,
-    download_id: i64,
+    attachment_id: Hash,
     file: &'a mut tokio::fs::File,
     downloaded_size: &'a AtomicU64,
     hash: Hash,
@@ -333,7 +331,7 @@ fn download_fragment<'a>(
                         client,
                         root,
                         ctx,
-                        download_id,
+                        attachment_id,
                         file,
                         downloaded_size,
                         child,
@@ -359,7 +357,7 @@ fn download_fragment<'a>(
                 emit_event(
                     ctx,
                     Event::DownloadProgress {
-                        id: download_id,
+                        attachment_id,
                         downloaded_size,
                         total_size: root.total_size(),
                     },

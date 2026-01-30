@@ -1,5 +1,7 @@
+use std::path::PathBuf;
+
 use crate::utils::color::username_color;
-use crate::widgets::convo::default_download_dir;
+
 use eframe::egui::{Response, RichText, Widget};
 use egui::{Color32, ImageSource, TextFormat};
 use egui::{TextStyle, text::LayoutJob};
@@ -122,15 +124,17 @@ impl Widget for AttachmentContent<'_> {
         let attachment_label = format!("[{} {} {}]", self.mime, size_text, unit_suffix);
         if self.mime.starts_with("image/") && self.size < 20_000_000 {
             ui.label(attachment_label);
-            if !*image_downloading {
+            if let Some(path) = dl_path {
+                // WORKAROUND: egui doesn't actually want a "real" URI with URI-encoding etc.
+                let path_str = path.to_string_lossy();
+                #[cfg(windows)]
+                let path_str = path_str.replace('\\', "/");
+                let uri = format!("file://{path_str}");
+                let max_box = egui::vec2(600.0, 400.0);
+                ui.add(egui::Image::from_uri(uri).fit_to_exact_size(max_box));
+            } else if !*image_downloading {
                 image_downloading.set_next(true);
                 start_dl!();
-            }
-            if let Some(path) = dl_path {
-                if let Ok(image) = self.app.images.get_or_load(ui.ctx(), path) {
-                    let max_box = egui::vec2(600.0, 400.0);
-                    ui.add(egui::Image::from_texture(&image).fit_to_exact_size(max_box));
-                }
             }
         } else {
             ui.horizontal_top(|ui| {
@@ -165,4 +169,10 @@ impl Widget for AttachmentContent<'_> {
         }
         ui.response()
     }
+}
+
+pub fn default_download_dir() -> PathBuf {
+    dirs::download_dir()
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
 }
