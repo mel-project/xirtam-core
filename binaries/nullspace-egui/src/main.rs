@@ -9,6 +9,7 @@ use clap::Parser;
 use egui::{Modal, Spinner};
 use egui_file_dialog::FileDialog;
 use nullspace_client::{Client, Config, internal::Event};
+use nullspace_crypt::hash::Hash;
 use nullspace_crypt::signing::SigningPublic;
 use nullspace_structs::fragment::FragmentRoot;
 use tokio::{
@@ -67,9 +68,8 @@ struct AppState {
     upload_progress: BTreeMap<i64, (u64, u64)>,
     upload_done: BTreeMap<i64, FragmentRoot>,
     upload_error: BTreeMap<i64, String>,
-    download_progress: BTreeMap<i64, (u64, u64)>,
-    download_error: BTreeMap<i64, String>,
-    download_for_msg: BTreeMap<i64, i64>,
+    download_progress: BTreeMap<Hash, (u64, u64)>,
+    download_error: BTreeMap<Hash, String>,
 }
 
 impl NullspaceApp {

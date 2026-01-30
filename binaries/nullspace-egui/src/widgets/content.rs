@@ -103,34 +103,19 @@ impl Widget for AttachmentContent<'_> {
             self.app.state.attach_updates,
         );
         let dl_path = status.as_ref().ok().and_then(|s| s.saved_to.as_ref());
-        let dl_progress = if let Some(download_id) =
-            self.app.state.download_for_msg.get(&self.message.id)
-            && let Some((downloaded, total)) = self.app.state.download_progress.get(download_id)
-        {
-            Some((*downloaded, *total))
-        } else {
-            None
-        };
-        let dl_error = if let Some(download_id) =
-            self.app.state.download_for_msg.get(&self.message.id)
-            && let Some(err) = self.app.state.download_error.get(download_id)
-        {
-            Some(err)
-        } else {
-            None
-        };
+        let dl_progress = self
+            .app
+            .state
+            .download_progress
+            .get(&self.id)
+            .map(|(downloaded, total)| (*downloaded, *total));
+        let dl_error = self.app.state.download_error.get(&self.id);
         let image_downloading = ui.use_state(|| false, ());
 
         defmac::defmac!(start_dl => {
             let save_dir = default_download_dir();
             let rpc = self.app.client.rpc();
-            if let Ok(download_id) =
-                flatten_rpc(rpc.attachment_download(self.id, save_dir).block_on()) {
-                self.app
-                    .state
-                    .download_for_msg
-                    .insert(self.message.id, download_id);
-            }
+            let _ = flatten_rpc(rpc.attachment_download(self.id, save_dir).block_on());
         });
         let (unit_scale, unit_suffix) = unit_for_bytes(self.size);
         let size_text = format_filesize(self.size, unit_scale);
