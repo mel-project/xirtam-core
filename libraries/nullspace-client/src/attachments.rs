@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicU64;
 use anyctx::AnyCtx;
 use bytes::Bytes;
 use futures_concurrency::future::TryJoin;
+use futures_util::stream::{self, StreamExt, TryStreamExt};
 use nullspace_crypt::aead::AeadKey;
 use nullspace_crypt::hash::{BcsHashExt, Hash};
 use nullspace_structs::fragment::{Fragment, FragmentLeaf, FragmentNode, FragmentRoot};
@@ -77,64 +78,65 @@ async fn upload_inner(
     let auth = device_auth(&client, &identity.username, &identity.cert_chain).await?;
 
     let filename = file_basename(&absolute_path)?;
-    let mut file = tokio::fs::File::open(&absolute_path).await?;
-    let total_size = file.metadata().await?.len();
+    let total_size = tokio::fs::metadata(&absolute_path).await?.len();
     let content_key = AeadKey::random();
     let uploaded_size = Arc::new(AtomicU64::new(0));
-    let mut current_level: Vec<(Hash, u64)> = Vec::new();
-    let mut buf = vec![0u8; CHUNK_SIZE_BYTES];
-
-    let (job_tx, job_rx) = async_channel::bounded::<FragmentLeaf>(1);
-    let tasks = (0..32)
-        .map(|_| {
-            let ctx = ctx.clone();
-            let job_rx = job_rx.clone();
-            let server_name = server_name.clone();
-            let uploaded_size = uploaded_size.clone();
-            tokio::spawn(async move {
-                let client = get_server_client(&ctx, &server_name).await?;
-                while let Ok(leaf) = job_rx.recv().await {
-                    let leaf_len = leaf.data.len();
-                    let response = client.v1_upload_frag(auth, Fragment::Leaf(leaf), 0).await?;
-                    if let Err(err) = response {
-                        return Err(anyhow::anyhow!(err.to_string()));
-                    }
-                    let uploaded_size = uploaded_size
-                        .fetch_add(leaf_len as u64, std::sync::atomic::Ordering::Relaxed);
-                    emit_event(
-                        &ctx,
-                        Event::UploadProgress {
-                            id: upload_id,
-                            uploaded_size,
-                            total_size,
-                        },
-                    );
-                }
-                Ok(())
-            })
-        })
+    let chunk_size = CHUNK_SIZE_BYTES as u64;
+    let chunk_count = total_size.div_ceil(chunk_size);
+    let offsets = (0..chunk_count)
+        .map(|index| (index as usize, index * chunk_size))
         .collect::<Vec<_>>();
 
-    loop {
-        let read = file.read(&mut buf).await?;
-        if read == 0 {
-            break;
-        }
-        let mut nonce = [0u8; 24];
-        rand::thread_rng().fill_bytes(&mut nonce);
-        let ciphertext = content_key
-            .encrypt(nonce, &buf[..read], &[])
-            .map_err(|_| anyhow::anyhow!("chunk encryption failed"))?;
-        let leaf = FragmentLeaf {
-            nonce,
-            data: Bytes::from(ciphertext),
-        };
-        let hash = Fragment::Leaf(leaf.clone()).bcs_hash();
-        job_tx.send(leaf).await?;
-        current_level.push((hash, read as u64));
-    }
-    job_tx.close();
-    tasks.try_join().await?;
+    let mut chunk_results = stream::iter(offsets)
+        .map(|(index, offset)| {
+            let ctx = ctx.clone();
+            let client = client.clone();
+            let auth = auth.clone();
+            let absolute_path = absolute_path.clone();
+            let uploaded_size = uploaded_size.clone();
+            let content_key = content_key.clone();
+            async move {
+                let mut file = tokio::fs::File::open(&absolute_path).await?;
+                file.seek(SeekFrom::Start(offset)).await?;
+                let chunk_len = (total_size - offset).min(chunk_size) as usize;
+                let mut buf = vec![0u8; chunk_len];
+                file.read_exact(&mut buf).await?;
+                let mut nonce = [0u8; 24];
+                rand::thread_rng().fill_bytes(&mut nonce);
+                let ciphertext = content_key
+                    .encrypt(nonce, &buf, &[])
+                    .map_err(|_| anyhow::anyhow!("chunk encryption failed"))?;
+                let leaf = FragmentLeaf {
+                    nonce,
+                    data: Bytes::from(ciphertext),
+                };
+                let hash = Fragment::Leaf(leaf.clone()).bcs_hash();
+                let response = client.v1_upload_frag(auth, Fragment::Leaf(leaf), 0).await?;
+                if let Err(err) = response {
+                    return Err(anyhow::anyhow!(err.to_string()));
+                }
+                let uploaded_size =
+                    uploaded_size.fetch_add(chunk_len as u64, std::sync::atomic::Ordering::Relaxed);
+                emit_event(
+                    &ctx,
+                    Event::UploadProgress {
+                        id: upload_id,
+                        uploaded_size,
+                        total_size,
+                    },
+                );
+                Ok((index, hash, chunk_len as u64))
+            }
+        })
+        .buffer_unordered(10)
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    chunk_results.sort_by_key(|(index, _, _)| *index);
+    let mut current_level = chunk_results
+        .into_iter()
+        .map(|(_, hash, size)| (hash, size))
+        .collect::<Vec<_>>();
 
     let mut nodes: Vec<FragmentNode> = Vec::new();
     while current_level.len() > MAX_FANOUT {
@@ -240,7 +242,7 @@ async fn download_inner(
     file.set_len(total_size).await?;
 
     let downloaded_size = Arc::new(AtomicU64::new(0));
-    let worker_count = root.children.len().min(4).max(1);
+    let worker_count = root.children.len().min(10).max(1);
     let chunk_size = root.children.len().div_ceil(worker_count);
     let tasks = root
         .children

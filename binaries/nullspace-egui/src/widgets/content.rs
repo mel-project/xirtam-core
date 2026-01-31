@@ -130,7 +130,8 @@ impl Widget for AttachmentContent<'_> {
                 #[cfg(windows)]
                 let path_str = path_str.replace('\\', "/");
                 let uri = format!("file://{path_str}");
-                let max_box = egui::vec2(600.0, 400.0);
+                let box_width = ui.available_width().min(800.0);
+                let max_box = egui::vec2(box_width, box_width * 0.6);
                 ui.add(egui::Image::from_uri(uri).fit_to_exact_size(max_box));
             } else if !*image_downloading {
                 image_downloading.set_next(true);
@@ -159,7 +160,6 @@ impl Widget for AttachmentContent<'_> {
                     .color(Color32::GRAY)
                     .size(11.0),
             );
-            ui.ctx().request_repaint();
         } else if let Some(error) = dl_error {
             ui.label(
                 RichText::new(format!("Download failed: {error}"))

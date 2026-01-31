@@ -4144,6 +4144,7 @@ dependencies = [
  "bytes",
  "dashmap 6.1.0",
  "futures-concurrency",
+ "futures-util",
  "memmap2",
  "moka",
  "nanorpc",

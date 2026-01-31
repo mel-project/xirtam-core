@@ -296,7 +296,7 @@ impl eframe::App for NullspaceApp {
                 self.state.last_saved_prefs = self.state.prefs.clone();
             }
         }
-        ctx.request_repaint_after(Duration::from_millis(500));
+        ctx.request_repaint_after(Duration::from_millis(100));
     }
 }
 

@@ -288,7 +288,6 @@ fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId
                 (*uploaded as f32 / *total as f32).clamp(0.0, 1.0)
             };
             ui.add(ProgressBar::new(progress).text(speed_text.to_string()));
-            ui.ctx().request_repaint();
         } else if let Some(done) = app.state.upload_done.get(in_progress) {
             let upload_id = *in_progress;
             let root = done.clone();
@@ -393,7 +392,6 @@ fn send_message(
     tokio::spawn(async move {
         let _ = flatten_rpc(rpc.convo_send(convo_id, "text/markdown".into(), body).await);
     });
-    ui.ctx().request_discard("msg sent");
 }
 
 fn render_roster(
