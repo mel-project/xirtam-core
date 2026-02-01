@@ -24,6 +24,7 @@ use crate::utils::prefs::PrefData;
 
 mod events;
 mod fonts;
+mod notify;
 mod promises;
 mod screens;
 mod utils;

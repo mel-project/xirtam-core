@@ -23,7 +23,7 @@ nullspace-structs = { version = "0.0.1", path = "../../libraries/nullspace-struc
 egui_hooks = { version = "0.10.0", features = ["persistence"] }
 poll-promise = { version = "0.3.0", features = ["tokio"] }
 smol_str = "0.3.2"
-notify-rust = "4.11.0"
+notify-rust = { version = "4.11.0", features = ["d"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 egui = "0.33.3"
