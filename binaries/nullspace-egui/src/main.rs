@@ -45,8 +45,6 @@ struct Cli {
     dir_endpoint: String,
     #[arg(long, default_value = DEFAULT_DIR_ANCHOR_PK)]
     dir_anchor_pk: String,
-    #[arg(long)]
-    egui_picker: bool,
 }
 
 struct NullspaceApp {
@@ -88,7 +86,6 @@ impl NullspaceApp {
         focused: Arc<AtomicBool>,
         prefs_path: PathBuf,
         prefs: PrefData,
-        use_egui_picker: bool,
     ) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         cc.egui_ctx.set_visuals(egui::Visuals::light());
@@ -306,25 +303,20 @@ impl eframe::App for NullspaceApp {
 }
 
 fn main() -> eframe::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: this happens at process start, before any threads are spawned.
+        unsafe {
+            std::env::set_var("WINIT_UNIX_BACKEND", "x11");
+            std::env::set_var("XDG_SESSION_TYPE", "x11");
+            std::env::remove_var("WAYLAND_DISPLAY");
+        }
+    }
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::new(
             "nullspace=debug,nullspace_egui=debug",
         ))
         .init();
-
-    if cfg!(target_os = "linux") {
-        let has_display = std::env::var_os("DISPLAY").is_some();
-        if has_display {
-            // Safe here: we set a process-wide default before any threads start.
-            unsafe {
-                std::env::set_var("WINIT_UNIX_BACKEND", "x11");
-                std::env::remove_var("WAYLAND_DISPLAY");
-                std::env::set_var("XDG_SESSION_TYPE", "x11");
-            }
-        } else {
-            tracing::warn!("DISPLAY is unset; leaving WINIT_UNIX_BACKEND unchanged");
-        }
-    }
 
     let cli = Cli::parse();
     tracing::info!(
@@ -333,6 +325,7 @@ fn main() -> eframe::Result<()> {
         wayland_display = %std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "<unset>".to_string()),
         "window backend environment"
     );
+
     let runtime = Runtime::new().expect("tokio runtime");
     let _guard = runtime.enter();
     let prefs_path = cli.prefs_path.unwrap_or_else(default_prefs_path);
@@ -352,18 +345,13 @@ fn main() -> eframe::Result<()> {
     let audio_tx = spawn_audio_thread();
     runtime.spawn(event_loop(rpc, event_tx, focused.clone(), audio_tx));
     let options = eframe::NativeOptions::default();
+
     eframe::run_native(
         "nullspace-egui",
         options,
         Box::new(move |cc| {
             Ok(Box::new(NullspaceApp::new(
-                cc,
-                client,
-                event_rx,
-                focused,
-                prefs_path,
-                prefs,
-                cli.egui_picker,
+                cc, client, event_rx, focused, prefs_path, prefs,
             )))
         }),
     )
@@ -393,7 +381,10 @@ fn default_prefs_path() -> PathBuf {
 
 fn supports_hide_window() -> bool {
     if cfg!(target_os = "linux") {
-        if matches!(std::env::var("WINIT_UNIX_BACKEND").ok().as_deref(), Some("x11")) {
+        if matches!(
+            std::env::var("WINIT_UNIX_BACKEND").ok().as_deref(),
+            Some("x11")
+        ) {
             return true;
         }
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
