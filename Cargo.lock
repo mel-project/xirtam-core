@@ -1078,6 +1078,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
+name = "catppuccin-egui"
+version = "5.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "119005543bcd5cc74f76323d40801bb29baf1b062e84f86eb42fb0b2a3fe61e9"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3200,7 +3209,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 1.0.69",
- "windows 0.54.0",
+ "windows 0.58.0",
 ]
 
 [[package]]
@@ -4716,6 +4725,7 @@ dependencies = [
  "anyhow",
  "base64",
  "bytes",
+ "catppuccin-egui",
  "chrono",
  "clap",
  "dashmap 6.1.0",

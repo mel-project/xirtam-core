@@ -6,6 +6,7 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
+catppuccin-egui = { version = "5.7.0", default-features = false, features = ["egui33"] }
 eframe = { version = "0.33.3", features = ["persistence"] }
 base64 = "0.22.1"
 bytes = "1.10.1"

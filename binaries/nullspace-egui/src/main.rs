@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use clap::Parser;
 
+use egui::style::ScrollStyle;
 use egui::{Modal, Spinner};
 use egui_file_dialog::FileDialog as EguiFileDialog;
 use nullspace_client::{Client, Config, internal::Event};
@@ -89,21 +90,22 @@ impl NullspaceApp {
     ) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         cc.egui_ctx.set_visuals(egui::Visuals::light());
+        catppuccin_egui::set_theme(&cc.egui_ctx, catppuccin_egui::LATTE);
         cc.egui_ctx.style_mut(|style| {
             style.spacing.item_spacing = egui::vec2(6.0, 6.0);
             // style.spacing.window_margin = egui::Margin::same(24);
             style.spacing.button_padding = egui::vec2(6.0, 4.0);
             style.spacing.indent = 16.0;
-            // style.spacing.scroll = ScrollStyle:::;
-            // for wid in [
-            //     &mut style.visuals.widgets.active,
-            //     &mut style.visuals.widgets.hovered,
-            //     &mut style.visuals.widgets.noninteractive,
-            //     &mut style.visuals.widgets.open,
-            //     &mut style.visuals.widgets.inactive,
-            // ] {
-            //     wid.corner_radius = egui::CornerRadius::ZERO;
-            // }
+            style.spacing.scroll = ScrollStyle::solid();
+            for wid in [
+                &mut style.visuals.widgets.active,
+                &mut style.visuals.widgets.hovered,
+                &mut style.visuals.widgets.noninteractive,
+                &mut style.visuals.widgets.open,
+                &mut style.visuals.widgets.inactive,
+            ] {
+                wid.corner_radius = egui::CornerRadius::ZERO;
+            }
             // style.debug.debug_on_hover = true; // show callstack / rects on hover
             // style.debug.show_expand_width = true; // highlight width expanders
             // style.debug.show_expand_height = true; // highlight height expanders
@@ -114,12 +116,16 @@ impl NullspaceApp {
         cc.egui_ctx.set_fonts(load_fonts(fonts));
         cc.egui_ctx
             .set_zoom_factor(prefs.zoom_percent as f32 / 100.0);
-        let tray = match tray::Tray::init("nullspace-egui") {
-            Ok(tray) => Some(tray),
-            Err(err) => {
-                tracing::warn!(error = %err, "failed to initialize tray");
-                None
+        let tray = if supports_hide_window() {
+            match tray::Tray::init("nullspace-egui") {
+                Ok(tray) => Some(tray),
+                Err(err) => {
+                    tracing::warn!(error = %err, "failed to initialize tray");
+                    None
+                }
             }
+        } else {
+            None
         };
         let supports_hide = supports_hide_window();
         Self {

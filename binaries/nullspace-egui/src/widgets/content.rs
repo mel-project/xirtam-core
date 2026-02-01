@@ -130,7 +130,9 @@ impl Widget for AttachmentContent<'_> {
         let (unit_scale, unit_suffix) = unit_for_bytes(self.size);
         let size_text = format_filesize(self.size, unit_scale);
         let attachment_label =
-            format!("\u{ea7b} {} [{} {}]", self.filename, size_text, unit_suffix);
+            format!("\u{ea7b} [{} {}] {}", size_text, unit_suffix, self.filename);
+
+        ui.colored_label(Color32::DARK_BLUE, attachment_label);
 
         if self.mime.starts_with("image/") {
             if let Some(path) = dl_path {
@@ -151,7 +153,7 @@ impl Widget for AttachmentContent<'_> {
                 }
             }
         }
-        ui.colored_label(Color32::DARK_BLUE, attachment_label);
+
         if let Some((downloaded, total)) = dl_progress {
             let speed_key = format!("download-{}", self.id);
             let (left, speed, _) = speed_fmt(&speed_key, downloaded, total);
@@ -169,8 +171,8 @@ impl Widget for AttachmentContent<'_> {
             );
         } else {
             ui.horizontal(|ui| {
-                if let Ok(status) = status
-                    && let Some(path) = status.saved_to
+                if let Ok(status) = status.as_ref()
+                    && let Some(path) = &status.saved_to
                 {
                     if ui.small_button("Open").clicked() {
                         let _ = open::that_detached(path.clone());
@@ -178,11 +180,12 @@ impl Widget for AttachmentContent<'_> {
                     if ui.small_button("Show in folder").clicked() {
                         let _ = open::that_detached(path.parent().unwrap());
                     }
-                } else if ui.link("Download").clicked() {
+                } else if ui.small_button("Download").clicked() {
                     start_dl!();
                 }
             });
         }
+
         ui.response()
     }
 }
