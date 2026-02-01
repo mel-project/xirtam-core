@@ -81,6 +81,14 @@ async fn upload_inner(
 
     let filename = file_basename(&absolute_path)?;
     let total_size = tokio::fs::metadata(&absolute_path).await?.len();
+    emit_event(
+        &ctx,
+        Event::UploadProgress {
+            id: upload_id,
+            uploaded_size: 0,
+            total_size,
+        },
+    );
     let content_key = AeadKey::random();
     let uploaded_size = Arc::new(AtomicU64::new(0));
     let chunk_size = CHUNK_SIZE_BYTES as u64;
@@ -238,6 +246,15 @@ async fn download_inner(
     let part_path = final_path.with_extension("part");
     let mut file = tokio::fs::File::create(&part_path).await?;
 
+    let total_size = root.total_size();
+    emit_event(
+        ctx,
+        Event::DownloadProgress {
+            attachment_id,
+            downloaded_size: 0,
+            total_size,
+        },
+    );
     if root.children.is_empty() {
         file.flush().await?;
         tokio::fs::rename(&part_path, &final_path).await?;
@@ -251,7 +268,6 @@ async fn download_inner(
         return Ok(());
     }
 
-    let total_size = root.total_size();
     file.set_len(total_size).await?;
 
     let downloaded_size = Arc::new(AtomicU64::new(0));
