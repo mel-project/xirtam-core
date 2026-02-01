@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::utils::color::username_color;
 
 use eframe::egui::{Response, RichText, Widget};
-use egui::{Color32, ProgressBar, TextFormat};
+use egui::{Color32, ProgressBar, Rect, Sense, TextFormat};
 use egui::{TextStyle, text::LayoutJob};
 use egui_hooks::UseHookExt;
 use nullspace_client::internal::MessageContent;
@@ -63,13 +63,14 @@ impl Widget for Content<'_> {
                         mime,
                         filename,
                     } => {
-                        ui.add(AttachmentContent {
-                            app: self.app,
-                            message: self.message,
-                            id: *id,
-                            size: *size,
-                            mime,
-                            filename,
+                        ui.push_id(id, |ui| {
+                            ui.add(AttachmentContent {
+                                app: self.app,
+                                id: *id,
+                                size: *size,
+                                mime,
+                                filename,
+                            });
                         });
                     }
                     MessageContent::PlainText(text) => {
@@ -99,7 +100,6 @@ impl Widget for Content<'_> {
 
 pub struct AttachmentContent<'a> {
     pub app: &'a mut NullspaceApp,
-    pub message: &'a nullspace_client::internal::ConvoMessage,
     pub id: Hash,
     pub size: u64,
     pub mime: &'a str,
@@ -129,9 +129,10 @@ impl Widget for AttachmentContent<'_> {
         });
         let (unit_scale, unit_suffix) = unit_for_bytes(self.size);
         let size_text = format_filesize(self.size, unit_scale);
-        let attachment_label = format!("{} [{} {}]", self.filename, size_text, unit_suffix);
-        if self.mime.starts_with("image/") && self.size < 20_000_000 {
-            ui.label(attachment_label);
+        let attachment_label =
+            format!("\u{ea7b} {} [{} {}]", self.filename, size_text, unit_suffix);
+
+        if self.mime.starts_with("image/") {
             if let Some(path) = dl_path {
                 // WORKAROUND: egui doesn't actually want a "real" URI with URI-encoding etc.
                 let path_str = path.to_string_lossy();
@@ -142,28 +143,18 @@ impl Widget for AttachmentContent<'_> {
                 let max_box = egui::vec2(ui.available_width(), box_width * 0.6);
                 ui.add(egui::Image::from_uri(uri).fit_to_exact_size(max_box));
             } else if !*image_downloading {
-                image_downloading.set_next(true);
-                start_dl!();
-            }
-        } else {
-            ui.colored_label(Color32::DARK_BLUE, attachment_label);
-            if dl_progress.is_none() {
-                ui.horizontal(|ui| {
-                    if let Ok(status) = status
-                        && let Some(path) = status.saved_to
-                    {
-                        if ui.button("Open").clicked() {
-                            let _ = open::that_detached(path);
-                        }
-                    } else if ui.button("Download").clicked() {
-                        start_dl!();
-                    }
-                });
+                if let Some(limit) = self.app.state.prefs.max_auto_image_download_bytes
+                    && self.size <= limit
+                {
+                    image_downloading.set_next(true);
+                    start_dl!();
+                }
             }
         }
+        ui.colored_label(Color32::DARK_BLUE, attachment_label);
         if let Some((downloaded, total)) = dl_progress {
             let speed_key = format!("download-{}", self.id);
-            let (left, speed, right) = speed_fmt(&speed_key, downloaded, total);
+            let (left, speed, _) = speed_fmt(&speed_key, downloaded, total);
             let speed_text = format!("{left} @ {speed}");
             ui.add(
                 ProgressBar::new(downloaded as f32 / total.max(1) as f32)
@@ -176,6 +167,21 @@ impl Widget for AttachmentContent<'_> {
                     .color(Color32::RED)
                     .size(11.0),
             );
+        } else {
+            ui.horizontal(|ui| {
+                if let Ok(status) = status
+                    && let Some(path) = status.saved_to
+                {
+                    if ui.small_button("Open").clicked() {
+                        let _ = open::that_detached(path.clone());
+                    }
+                    if ui.small_button("Show in folder").clicked() {
+                        let _ = open::that_detached(path.parent().unwrap());
+                    }
+                } else if ui.link("Download").clicked() {
+                    start_dl!();
+                }
+            });
         }
         ui.response()
     }

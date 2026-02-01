@@ -7,7 +7,7 @@ use std::time::Duration;
 use clap::Parser;
 
 use egui::{Modal, Spinner};
-use egui_file_dialog::FileDialog;
+use egui_file_dialog::FileDialog as EguiFileDialog;
 use nullspace_client::{Client, Config, internal::Event};
 use nullspace_crypt::hash::Hash;
 use nullspace_crypt::signing::SigningPublic;
@@ -19,9 +19,11 @@ use tokio::{
 use url::Url;
 
 use crate::events::{event_loop, spawn_audio_thread};
+use crate::fonts::load_fonts;
 use crate::utils::prefs::PrefData;
 
 mod events;
+mod fonts;
 mod promises;
 mod screens;
 mod utils;
@@ -41,6 +43,8 @@ struct Cli {
     dir_endpoint: String,
     #[arg(long, default_value = DEFAULT_DIR_ANCHOR_PK)]
     dir_anchor_pk: String,
+    #[arg(long)]
+    egui_picker: bool,
 }
 
 struct NullspaceApp {
@@ -48,7 +52,7 @@ struct NullspaceApp {
     recv_event: Receiver<Event>,
     focused: Arc<AtomicBool>,
     prefs_path: PathBuf,
-    file_dialog: FileDialog,
+    file_dialog: EguiFileDialog,
 
     state: AppState,
 }
@@ -78,6 +82,7 @@ impl NullspaceApp {
         focused: Arc<AtomicBool>,
         prefs_path: PathBuf,
         prefs: PrefData,
+        use_egui_picker: bool,
     ) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         cc.egui_ctx.set_visuals(egui::Visuals::light());
@@ -102,61 +107,8 @@ impl NullspaceApp {
             // style.debug.show_resize = true; // show resize handles
         });
         // cc.egui_ctx.set_zoom_factor(1.25);
-        let mut fonts = egui::FontDefinitions::default();
-        fonts.font_data.insert(
-            "fantasque".to_string(),
-            egui::FontData::from_static(include_bytes!("fonts/FantasqueSansMNerdFont-Regular.ttf"))
-                .into(),
-        );
-        fonts.font_data.insert(
-            "fantasque_bold".to_string(),
-            egui::FontData::from_static(include_bytes!("fonts/FantasqueSansMNerdFont-Bold.ttf"))
-                .into(),
-        );
-        fonts.font_data.insert(
-            "fantasque_italic".to_string(),
-            egui::FontData::from_static(include_bytes!("fonts/FantasqueSansMNerdFont-Italic.ttf"))
-                .into(),
-        );
-        fonts.font_data.insert(
-            "fantasque_bold_italic".to_string(),
-            egui::FontData::from_static(include_bytes!(
-                "fonts/FantasqueSansMNerdFont-BoldItalic.ttf"
-            ))
-            .into(),
-        );
-        fonts.families.insert(
-            egui::FontFamily::Name("fantasque".into()),
-            vec!["fantasque".to_string()],
-        );
-        fonts.families.insert(
-            egui::FontFamily::Name("fantasque_bold".into()),
-            vec!["fantasque_bold".to_string()],
-        );
-        fonts.families.insert(
-            egui::FontFamily::Name("fantasque_italic".into()),
-            vec!["fantasque_italic".to_string()],
-        );
-        fonts.families.insert(
-            egui::FontFamily::Name("fantasque_bold_italic".into()),
-            vec!["fantasque_bold_italic".to_string()],
-        );
-
-        // we keep the existing font as a fallback
-        let mut existing_fonts = fonts
-            .families
-            .get(&egui::FontFamily::Proportional)
-            .unwrap()
-            .clone();
-        existing_fonts.insert(0, "fantasque".into());
-        fonts
-            .families
-            .insert(egui::FontFamily::Proportional, existing_fonts);
-
-        fonts
-            .families
-            .insert(egui::FontFamily::Monospace, vec!["fantasque".to_string()]);
-        cc.egui_ctx.set_fonts(fonts);
+        let fonts = egui::FontDefinitions::default();
+        cc.egui_ctx.set_fonts(load_fonts(fonts));
         cc.egui_ctx
             .set_zoom_factor(prefs.zoom_percent as f32 / 100.0);
         Self {
@@ -164,7 +116,7 @@ impl NullspaceApp {
             recv_event,
             focused,
             prefs_path,
-            file_dialog: FileDialog::new(),
+            file_dialog: EguiFileDialog::new(),
             state: AppState {
                 prefs: prefs.clone(),
                 last_saved_prefs: prefs,
@@ -332,7 +284,13 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             Ok(Box::new(NullspaceApp::new(
-                cc, client, event_rx, focused, prefs_path, prefs,
+                cc,
+                client,
+                event_rx,
+                focused,
+                prefs_path,
+                prefs,
+                cli.egui_picker,
             )))
         }),
     )

@@ -19,7 +19,7 @@ use crate::utils::speed::speed_fmt;
 use crate::widgets::content::Content;
 use crate::widgets::group_roster::GroupRoster;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const INITIAL_LIMIT: u16 = 10;
 const PAGE_LIMIT: u16 = 10;
@@ -251,7 +251,6 @@ fn render_messages(
                 if let Some(date) = date_from_timestamp(item.received_at)
                     && last_date != Some(date)
                 {
-                    ui.add_space(4.0);
                     let label = format!("[{}]", date.format("%A, %d %b %Y"));
                     ui.label(RichText::new(label).color(Color32::GRAY).size(12.0));
                     ui.add_space(4.0);
@@ -268,6 +267,19 @@ fn render_messages(
         let mut fetch = |before, after, limit| convo_history(app, convo_id, before, after, limit);
         state.load_older(&mut fetch);
     }
+}
+
+fn start_upload(app: &mut NullspaceApp, attachment: &mut Var<Option<i64>>, path: PathBuf) {
+    tracing::debug!(
+        path = debug(&path),
+        "picked an attachment, starting upload..."
+    );
+    let rpc = app.client.rpc();
+    let mime = infer_mime(&path);
+    let Ok(upload_id) = flatten_rpc(rpc.attachment_upload(path, mime).block_on()) else {
+        return;
+    };
+    attachment.replace(upload_id);
 }
 
 fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId) {
@@ -335,16 +347,7 @@ fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId
         }
         app.file_dialog.update(ui.ctx());
         if let Some(path) = app.file_dialog.take_picked() {
-            tracing::debug!(
-                path = debug(&path),
-                "picked an attachment, starting upload..."
-            );
-            let rpc = app.client.rpc();
-            let mime = infer_mime(&path);
-            let Ok(upload_id) = flatten_rpc(rpc.attachment_upload(path, mime).block_on()) else {
-                return;
-            };
-            attachment.replace(upload_id);
+            start_upload(app, &mut attachment, path);
         }
     }
 
@@ -418,7 +421,7 @@ fn render_row(ui: &mut eframe::egui::Ui, item: &ConvoMessage, app: &mut Nullspac
         ui.label(RichText::new(format!("[{timestamp}]")).color(Color32::GRAY));
         ui.add(Content { app, message: item });
     });
-    ui.add_space(2.0);
+    ui.add_space(4.0);
 }
 
 fn format_timestamp(ts: Option<NanoTimestamp>) -> String {
