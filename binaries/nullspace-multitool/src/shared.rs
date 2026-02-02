@@ -7,7 +7,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use url::Url;
 use nullspace_crypt::signing::SigningPublic;
 use nullspace_dirclient::DirClient;
-use nullspace_nanorpc::Transport;
+use nullspace_rpc_pool::RpcPool;
 
 #[derive(Args, Clone)]
 pub struct GlobalArgs {
@@ -41,6 +41,6 @@ pub async fn build_dir_client(global: &GlobalArgs) -> anyhow::Result<DirClient> 
         .min_connections(1)
         .connect_with(opts)
         .await?;
-    let transport = Transport::new(endpoint);
+    let transport = RpcPool::new().rpc(endpoint);
     DirClient::new(transport, anchor_pk, pool).await
 }

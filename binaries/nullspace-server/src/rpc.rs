@@ -9,7 +9,7 @@ use axum::{
 use bytes::Bytes;
 use moka::future::Cache;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService, RpcTransport};
-use nullspace_nanorpc::Transport;
+use nullspace_rpc_pool::PooledTransport;
 use nullspace_structs::certificate::CertificateChain;
 use nullspace_structs::server::{
     AuthToken, MailboxAcl, MailboxEntry, MailboxId, MailboxRecvArgs, ProxyError, ServerName,
@@ -19,6 +19,7 @@ use nullspace_structs::{Blob, timestamp::NanoTimestamp, username::UserName};
 
 use crate::config::CONFIG;
 use crate::{device, dir_client::DIR_CLIENT, fragment, mailbox};
+use crate::rpc_pool::RPC_POOL;
 
 #[derive(Clone, Default)]
 pub struct ServerRpc;
@@ -133,7 +134,7 @@ impl ServerProtocol for ServerRpc {
         if !CONFIG.proxy_enabled {
             return Err(ProxyError::NotSupported);
         }
-        static PROXY_CACHE: LazyLock<Cache<ServerName, Arc<Transport>>> = LazyLock::new(|| {
+        static PROXY_CACHE: LazyLock<Cache<ServerName, PooledTransport>> = LazyLock::new(|| {
             Cache::builder()
                 .time_to_idle(Duration::from_secs(12 * 60 * 60))
                 .build()
@@ -155,7 +156,7 @@ impl ServerProtocol for ServerRpc {
                     .first()
                     .cloned()
                     .ok_or_else(|| anyhow::anyhow!("server has no public URLs"))?;
-                Ok(Arc::new(Transport::new(endpoint)))
+                Ok(RPC_POOL.rpc(endpoint))
             })
             .await
             .map_err(|err: Arc<anyhow::Error>| ProxyError::Upstream(err.to_string()))?;
@@ -176,8 +177,8 @@ impl ServerProtocol for ServerRpc {
             Err(err) => return Err(ProxyError::Upstream(err.to_string())),
         }
 
-        static DIRECTORY_TRANSPORT: LazyLock<Transport> =
-            LazyLock::new(|| Transport::new(CONFIG.directory_url.clone()));
+        static DIRECTORY_TRANSPORT: LazyLock<PooledTransport> =
+            LazyLock::new(|| RPC_POOL.rpc(CONFIG.directory_url.clone()));
 
         DIRECTORY_TRANSPORT
             .call_raw(req)

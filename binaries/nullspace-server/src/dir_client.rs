@@ -6,14 +6,14 @@ use anyhow::Context;
 use rand::RngCore;
 use nullspace_crypt::signing::SigningSecret;
 use nullspace_dirclient::DirClient;
-use nullspace_nanorpc::Transport;
 use nullspace_structs::server::ServerDescriptor;
 
 use crate::config::CONFIG;
 use crate::database::DATABASE;
+use crate::rpc_pool::RPC_POOL;
 
 pub static DIR_CLIENT: LazyLock<DirClient> = LazyLock::new(|| {
-    let transport = Transport::new(CONFIG.directory_url.clone());
+    let transport = RPC_POOL.rpc(CONFIG.directory_url.clone());
     pollster::block_on(DirClient::new(
         transport,
         CONFIG.directory_pk,

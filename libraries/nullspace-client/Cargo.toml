@@ -39,7 +39,7 @@ tracing = "0.1.41"
 url = { version = "2.5.8", features = ["serde"] }
 nullspace-crypt = { version = "0.0.1", path = "../nullspace-crypt" }
 nullspace-dirclient = { version = "0.0.1", path = "../nullspace-dirclient" }
-nullspace-nanorpc = { version = "0.0.1", path = "../nullspace-nanorpc" }
+nullspace-rpc-pool = { version = "0.0.1", path = "../nullspace-rpc-pool" }
 nullspace-structs = { version = "0.0.1", path = "../nullspace-structs" }
 scopeguard = "1.2.0"
 memmap2 = "0.9.9"

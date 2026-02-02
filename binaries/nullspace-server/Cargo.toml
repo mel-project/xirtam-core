@@ -25,6 +25,7 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 nullspace-crypt = { path = "../../libraries/nullspace-crypt" }
 nullspace-dirclient = { path = "../../libraries/nullspace-dirclient" }
 nullspace-nanorpc = { path = "../../libraries/nullspace-nanorpc" }
+nullspace-rpc-pool = { path = "../../libraries/nullspace-rpc-pool" }
 nullspace-structs = { path = "../../libraries/nullspace-structs" }
 url = "2.5.7"
 moka = { version = "0.12.12", features = ["future", "sync"] }

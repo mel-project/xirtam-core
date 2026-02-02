@@ -20,6 +20,9 @@ pub fn speed(var: &str, val: f32) -> f32 {
     match SPEEDS.entry(var.to_owned()) {
         dashmap::mapref::entry::Entry::Occupied(mut entry) => {
             let s = entry.get_mut();
+            if val == s.last_val {
+                return s.smoothed;
+            }
             let dt = (now - s.last_at).as_secs_f32();
             if dt > 0.0 {
                 let inst = (val - s.last_val) / dt; // <-- the missing piece

@@ -4625,7 +4625,7 @@ dependencies = [
  "nanorpc",
  "nullspace-crypt",
  "nullspace-dirclient",
- "nullspace-nanorpc",
+ "nullspace-rpc-pool",
  "nullspace-structs",
  "pollster",
  "rand 0.8.5",
@@ -4705,7 +4705,7 @@ dependencies = [
  "nanorpc",
  "novasmt",
  "nullspace-crypt",
- "nullspace-nanorpc",
+ "nullspace-rpc-pool",
  "nullspace-structs",
  "rand 0.9.2",
  "serde",
@@ -4771,7 +4771,7 @@ dependencies = [
  "clap",
  "nullspace-crypt",
  "nullspace-dirclient",
- "nullspace-nanorpc",
+ "nullspace-rpc-pool",
  "nullspace-structs",
  "serde",
  "serde_json",
@@ -4790,10 +4790,24 @@ dependencies = [
  "futures-concurrency",
  "nanorpc",
  "reqwest",
+ "scopeguard",
  "serde_json",
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "nullspace-rpc-pool"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "moka",
+ "nanorpc",
+ "nullspace-nanorpc",
  "url",
 ]
 
@@ -4814,6 +4828,7 @@ dependencies = [
  "nullspace-crypt",
  "nullspace-dirclient",
  "nullspace-nanorpc",
+ "nullspace-rpc-pool",
  "nullspace-structs",
  "pollster",
  "rand 0.9.2",

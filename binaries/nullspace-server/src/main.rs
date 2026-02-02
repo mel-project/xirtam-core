@@ -5,6 +5,7 @@ mod dir_client;
 mod fragment;
 mod mailbox;
 mod rpc;
+mod rpc_pool;
 
 use std::fmt::Display;
 use std::future::Future;

@@ -1,10 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{sync::{Arc, LazyLock}, time::Duration};
 
 use anyhow::Context;
 use nanorpc::DynRpcTransport;
 use tokio::sync::RwLock;
 use nullspace_crypt::hash::Hash;
-use nullspace_nanorpc::Transport;
+use nullspace_rpc_pool::RpcPool;
 use nullspace_structs::directory::{
     DirectoryAnchor, DirectoryChunk, DirectoryClient, DirectoryErr, DirectoryHistoryIterExt,
     DirectoryUpdate, PowSolution,
@@ -14,6 +14,7 @@ use url::Url;
 use crate::{db, merkle::MeshaNodeStore, state::DirectoryState};
 
 const MIRROR_POLL_SECS: u64 = 2;
+static RPC_POOL: LazyLock<RpcPool> = LazyLock::new(RpcPool::new);
 
 pub struct MirrorState {
     pub client: DirectoryClient<DynRpcTransport>,
@@ -22,7 +23,7 @@ pub struct MirrorState {
 
 impl MirrorState {
     pub fn new(endpoint: Url) -> Self {
-        let transport = Transport::new(endpoint);
+        let transport = RPC_POOL.rpc(endpoint);
         let client = DirectoryClient::from(transport);
         Self {
             client,

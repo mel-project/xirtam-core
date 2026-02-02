@@ -10,6 +10,7 @@ pub mod internal;
 mod long_poll;
 mod main_loop;
 mod medium_keys;
+mod rpc_pool;
 mod retry;
 mod server;
 mod user_info;

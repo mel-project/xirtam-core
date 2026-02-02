@@ -7,12 +7,13 @@ use async_trait::async_trait;
 use moka::future::Cache;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use nullspace_dirclient::DirClient;
-use nullspace_nanorpc::Transport;
+use nullspace_rpc_pool::{PooledTransport, RpcPool};
 use nullspace_structs::server::{AuthToken, ProxyError, ServerClient, ServerName};
 
 use crate::config::Config;
 use crate::database::DATABASE;
 use crate::identity::Identity;
+use crate::rpc_pool::RPC_POOL;
 
 static SERVER_CACHE: LazyLock<Cache<ServerName, Arc<ServerClient>>> = LazyLock::new(|| {
     Cache::builder()
@@ -26,7 +27,8 @@ pub async fn get_server_client(
 ) -> anyhow::Result<Arc<ServerClient>> {
     SERVER_CACHE
         .try_get_with(name.clone(), async {
-            let transport = Transport::new(ctx.init().dir_endpoint.clone());
+            let rpc_pool = ctx.get(RPC_POOL).clone();
+            let transport = rpc_pool.rpc(ctx.init().dir_endpoint.clone());
             let dir = DirClient::new(
                 transport,
                 ctx.init().dir_anchor_pk,
@@ -51,7 +53,8 @@ pub async fn get_server_client(
                             .first()
                             .cloned()
                             .context("server has no public URLs")?;
-                        let proxy_client = Arc::new(ServerClient::from(Transport::new(endpoint)));
+                        let proxy_client =
+                            Arc::new(ServerClient::from(rpc_pool.rpc(endpoint)));
                         let auth_token = proxy_client
                             .v1_device_auth(identity.username, identity.cert_chain)
                             .await?
@@ -76,6 +79,7 @@ pub async fn get_server_client(
                 .context("server has no public URLs")?;
             Ok(Arc::new(ServerClient::from(ProxyingTransport::new(
                 name.clone(),
+                rpc_pool,
                 endpoint,
                 proxy_info,
             ))))
@@ -91,7 +95,7 @@ struct ProxyingTransport {
 
 struct ProxyingTransportInner {
     target_name: ServerName,
-    target_transport: Transport,
+    target_transport: PooledTransport,
     proxy_unsupported: AtomicBool,
     proxy_info: Option<ProxyInfo>,
 }
@@ -103,11 +107,16 @@ struct ProxyInfo {
 }
 
 impl ProxyingTransport {
-    fn new(target_name: ServerName, endpoint: url::Url, proxy_info: Option<ProxyInfo>) -> Self {
+    fn new(
+        target_name: ServerName,
+        pool: RpcPool,
+        endpoint: url::Url,
+        proxy_info: Option<ProxyInfo>,
+    ) -> Self {
         Self {
             inner: Arc::new(ProxyingTransportInner {
                 target_name,
-                target_transport: Transport::new(endpoint),
+                target_transport: pool.rpc(endpoint),
                 proxy_unsupported: AtomicBool::new(proxy_info.is_none()),
                 proxy_info,
             }),

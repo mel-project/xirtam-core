@@ -1,3 +1,5 @@
+use std::sync::{Arc, atomic::AtomicU64};
+
 use async_trait::async_trait;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use url::Url;
@@ -12,20 +14,28 @@ pub use tcp::{serve_lz4tcp, serve_tcp};
 
 #[derive(Clone)]
 pub struct Transport {
+    endpoint: Url,
     inner: TransportInner,
+    inflight: Arc<AtomicU64>,
 }
 
 impl Transport {
     pub fn new(endpoint: Url) -> Self {
         match endpoint.scheme() {
             "http" | "https" => Self {
+                endpoint: endpoint.clone(),
                 inner: TransportInner::Http(http::HttpTransport::new(endpoint)),
+                inflight: Default::default(),
             },
             "tcp" => Self {
+                endpoint: endpoint.clone(),
                 inner: TransportInner::Tcp(tcp::RawTcpClient::new(endpoint)),
+                inflight: Default::default(),
             },
             "lz4tcp" => Self {
+                endpoint: endpoint.clone(),
                 inner: TransportInner::Tcp(tcp::RawTcpClient::new_lz4(endpoint)),
+                inflight: Default::default(),
             },
             scheme => panic!("unsupported RPC endpoint scheme: {scheme}"),
         }
@@ -37,6 +47,18 @@ impl RpcTransport for Transport {
     type Error = anyhow::Error;
 
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
+        let inflight = self
+            .inflight
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tracing::debug!(
+            endpoint = display(&self.endpoint),
+            inflight,
+            "calling an RPC endpoint"
+        );
+        scopeguard::defer!({
+            self.inflight
+                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        });
         match &self.inner {
             TransportInner::Http(http) => http.call_raw(req).await,
             TransportInner::Tcp(tcp) => tcp.call_raw(req).await,

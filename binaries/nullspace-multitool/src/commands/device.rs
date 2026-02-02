@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use serde::{Serialize, de::DeserializeOwned};
 use url::Url;
 use nullspace_crypt::hash::{BcsHashExt, Hash};
-use nullspace_nanorpc::Transport;
+use nullspace_rpc_pool::RpcPool;
 use nullspace_structs::{
     Blob,
     certificate::{CertificateChain, DeviceCertificate, DeviceSecret},
@@ -100,10 +100,11 @@ struct ChainDumpEntry {
 }
 
 pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
+    let rpc_pool = RpcPool::new();
     match args.command {
         Command::List { username } => {
             let endpoint = resolve_server_endpoint(global, &username).await?;
-            let client = ServerClient::from(Transport::new(endpoint));
+            let client = ServerClient::from(rpc_pool.rpc(endpoint));
             let chains = client
                 .v1_device_certs(username)
                 .await?
@@ -117,7 +118,7 @@ pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
         Command::Auth { username, chain } => {
             let chain = read_bcs::<CertificateChain>(&chain)?;
             let endpoint = resolve_server_endpoint(global, &username).await?;
-            let client = ServerClient::from(Transport::new(endpoint));
+            let client = ServerClient::from(rpc_pool.rpc(endpoint));
             let auth_token = client
                 .v1_device_auth(username, chain)
                 .await?
@@ -187,7 +188,7 @@ pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
             message,
         } => {
             let endpoint = resolve_server_endpoint(global, &username).await?;
-            let client = ServerClient::from(Transport::new(endpoint));
+            let client = ServerClient::from(rpc_pool.rpc(endpoint));
             let chain = read_bcs::<CertificateChain>(&chain)?;
             let auth = client
                 .v1_device_auth(username.clone(), chain)
@@ -209,7 +210,7 @@ pub async fn run(args: Args, global: &GlobalArgs) -> anyhow::Result<()> {
             timeout_ms,
         } => {
             let endpoint = resolve_server_endpoint(global, &username).await?;
-            let client = ServerClient::from(Transport::new(endpoint));
+            let client = ServerClient::from(rpc_pool.rpc(endpoint));
             let chain = read_bcs::<CertificateChain>(&chain)?;
             let auth = client
                 .v1_device_auth(username.clone(), chain)
