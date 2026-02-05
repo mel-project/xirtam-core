@@ -18,6 +18,7 @@ use url::Url;
 use crate::certificate::CertificateChain;
 use crate::fragment::Fragment;
 use crate::group::GroupId;
+use crate::profile::UserProfile;
 use crate::timestamp::Timestamp;
 use crate::{Blob, timestamp::NanoTimestamp, username::UserName};
 
@@ -49,6 +50,17 @@ pub trait ServerProtocol {
         &self,
         username: UserName,
     ) -> Result<BTreeMap<Hash, SignedMediumPk>, ServerRpcError>;
+
+    /// Retrieve a user's profile.
+    async fn v1_profile(&self, username: UserName)
+        -> Result<Option<UserProfile>, ServerRpcError>;
+
+    /// Set a user's profile.
+    async fn v1_profile_set(
+        &self,
+        username: UserName,
+        profile: UserProfile,
+    ) -> Result<(), ServerRpcError>;
 
     /// Store a device's medium-term public key.
     async fn v1_device_add_medium_pk(

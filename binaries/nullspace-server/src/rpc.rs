@@ -15,11 +15,12 @@ use nullspace_structs::server::{
     AuthToken, MailboxAcl, MailboxEntry, MailboxId, MailboxRecvArgs, ProxyError, ServerName,
     ServerProtocol, ServerRpcError, ServerService, SignedMediumPk,
 };
-use nullspace_structs::{Blob, timestamp::NanoTimestamp, username::UserName};
+use nullspace_structs::{Blob, profile::UserProfile, timestamp::NanoTimestamp, username::UserName};
 
 use crate::config::CONFIG;
-use crate::{device, dir_client::DIR_CLIENT, fragment, mailbox};
+use crate::profile;
 use crate::rpc_pool::RPC_POOL;
+use crate::{device, dir_client::DIR_CLIENT, fragment, mailbox};
 
 #[derive(Clone, Default)]
 pub struct ServerRpc;
@@ -74,6 +75,18 @@ impl ServerProtocol for ServerRpc {
         username: UserName,
     ) -> Result<BTreeMap<nullspace_crypt::hash::Hash, SignedMediumPk>, ServerRpcError> {
         device::device_medium_pks(username).await
+    }
+
+    async fn v1_profile(&self, username: UserName) -> Result<Option<UserProfile>, ServerRpcError> {
+        profile::profile_get(username).await
+    }
+
+    async fn v1_profile_set(
+        &self,
+        username: UserName,
+        profile_value: UserProfile,
+    ) -> Result<(), ServerRpcError> {
+        profile::profile_set(username, profile_value).await
     }
 
     async fn v1_device_add_medium_pk(

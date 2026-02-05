@@ -16,6 +16,7 @@ use crate::{
     server::{AuthToken, ServerName},
     timestamp::{NanoTimestamp, Timestamp},
     username::UserName,
+    Blob,
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -107,12 +108,17 @@ impl GroupMessage {
         key: &AeadKey,
     ) -> Result<Self, GroupMessageError> {
         let message_bytes = bcs::to_bytes(message).map_err(|_| GroupMessageError::Encode)?;
-        let signed = DeviceSigned::sign_bytes(
-            Bytes::from(message_bytes),
+        let message_blob = Blob {
+            kind: Blob::V1_MESSAGE_CONTENT.into(),
+            inner: Bytes::from(message_bytes),
+        };
+        let signed = DeviceSigned::sign_blob(
+            &message_blob,
             sender_username,
             sender_chain,
             sender_device,
-        );
+        )
+        .map_err(|_| GroupMessageError::Encode)?;
         let plaintext_bytes = bcs::to_bytes(&signed).map_err(|_| GroupMessageError::Encode)?;
         let mut nonce = [0u8; 24];
         rand::rng().fill_bytes(&mut nonce);

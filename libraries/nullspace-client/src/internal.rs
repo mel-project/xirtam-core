@@ -8,8 +8,9 @@ use nullspace_crypt::hash::{BcsHashExt, Hash};
 use nullspace_crypt::signing::{Signable, Signature};
 use nullspace_structs::certificate::{CertificateChain, DeviceSecret};
 use nullspace_structs::event::EventPayload;
-use nullspace_structs::fragment::FragmentRoot;
+use nullspace_structs::fragment::Attachment;
 use nullspace_structs::group::{GroupId, GroupInviteMsg};
+use nullspace_structs::profile::UserProfile;
 use nullspace_structs::server::{AuthToken, ServerClient, ServerName, SignedMediumPk};
 use nullspace_structs::timestamp::{NanoTimestamp, Timestamp};
 use nullspace_structs::username::{UserDescriptor, UserName};
@@ -32,6 +33,7 @@ use crate::convo::{
 use crate::database::{DATABASE, DbNotify, identity_exists};
 use crate::directory::DIR_CLIENT;
 use crate::identity::Identity;
+use crate::profile::get_profile;
 use crate::server::get_server_client;
 
 /// The internal JSON-RPC interface exposed by nullspace-client.
@@ -87,6 +89,15 @@ pub trait InternalProtocol {
         &self,
         attachment_id: nullspace_crypt::hash::Hash,
     ) -> Result<AttachmentStatus, InternalRpcError>;
+
+    async fn attachment_download_oneshot(
+        &self,
+        sender: UserName,
+        attachment: Attachment,
+        save_to: PathBuf,
+    ) -> Result<(), InternalRpcError>;
+
+    async fn user_profile(&self, username: UserName) -> Result<UserProfile, InternalRpcError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -107,7 +118,7 @@ pub enum Event {
     },
     UploadDone {
         id: i64,
-        root: FragmentRoot,
+        root: Attachment,
     },
     UploadFailed {
         id: i64,
@@ -415,6 +426,32 @@ impl InternalProtocol for InternalImpl {
             .await
             .map_err(map_anyhow_err)
     }
+
+    async fn attachment_download_oneshot(
+        &self,
+        sender: UserName,
+        attachment: Attachment,
+        save_to: PathBuf,
+    ) -> Result<(), InternalRpcError> {
+        attachments::attachment_download_oneshot(&self.ctx, sender, attachment, save_to)
+            .await
+            .map_err(map_anyhow_err)
+    }
+
+    async fn user_profile(&self, username: UserName) -> Result<UserProfile, InternalRpcError> {
+        let db = self.ctx.get(DATABASE);
+        let profile = get_profile(&self.ctx, &username)
+            .await
+            .map_err(map_anyhow_err)?
+            .ok_or_else(|| InternalRpcError::Other("profile not found".into()))?;
+        if let Some(avatar) = profile.avatar.as_ref() {
+            let mut conn = db.acquire().await.map_err(internal_err)?;
+            store_attachment_root(&mut conn, &username, avatar)
+                .await
+                .map_err(internal_err)?;
+        }
+        Ok(profile)
+    }
 }
 
 async fn register_bootstrap(
@@ -718,8 +755,8 @@ async fn decode_message_content(
         mime if mime == GroupInviteMsg::mime() => Ok(MessageContent::GroupInvite {
             invite_id: message_id,
         }),
-        mime if mime == FragmentRoot::mime() => {
-            let root = match serde_json::from_slice::<FragmentRoot>(body) {
+        mime if mime == Attachment::mime() => {
+            let root = match serde_json::from_slice::<Attachment>(body) {
                 Ok(root) => root,
                 Err(err) => {
                     tracing::warn!(

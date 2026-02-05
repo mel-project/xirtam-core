@@ -54,15 +54,14 @@ impl RpcTransport for Transport {
             .inflight
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let method = req.method.clone();
-        let start = Instant::now();
+
+        tracing::debug!(
+            endpoint = display(&self.endpoint),
+            method,
+            inflight,
+            "calling an RPC endpoint"
+        );
         scopeguard::defer!({
-            tracing::debug!(
-                endpoint = display(&self.endpoint),
-                method,
-                inflight,
-                elapsed = debug(start.elapsed()),
-                "called an RPC endpoint"
-            );
             self.inflight
                 .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         });

@@ -1,6 +1,7 @@
 pub mod add_contact;
 pub mod add_device;
 pub mod add_group;
+pub mod avatar;
 pub mod convo;
 pub mod content;
 pub mod group_roster;

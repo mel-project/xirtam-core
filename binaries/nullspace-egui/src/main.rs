@@ -12,7 +12,7 @@ use egui_file_dialog::FileDialog as EguiFileDialog;
 use nullspace_client::{Client, Config, internal::Event};
 use nullspace_crypt::hash::Hash;
 use nullspace_crypt::signing::SigningPublic;
-use nullspace_structs::fragment::FragmentRoot;
+use nullspace_structs::fragment::Attachment;
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{self, Receiver},
@@ -73,7 +73,7 @@ struct AppState {
     attach_updates: u64,
 
     upload_progress: BTreeMap<i64, (u64, u64)>,
-    upload_done: BTreeMap<i64, FragmentRoot>,
+    upload_done: BTreeMap<i64, Attachment>,
     upload_error: BTreeMap<i64, String>,
     download_progress: BTreeMap<Hash, (u64, u64)>,
     download_error: BTreeMap<Hash, String>,

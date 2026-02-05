@@ -6,7 +6,7 @@ use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
 use nullspace_client::internal::{ConvoId, ConvoMessage};
 use nullspace_structs::event::EventPayload;
-use nullspace_structs::fragment::FragmentRoot;
+use nullspace_structs::fragment::Attachment;
 use nullspace_structs::group::GroupId;
 use nullspace_structs::timestamp::NanoTimestamp;
 use pollster::FutureExt;
@@ -315,7 +315,7 @@ fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId
                 let _ = flatten_rpc(
                     rpc.convo_send(
                         convo_id,
-                        SmolStr::new(FragmentRoot::mime()),
+                        SmolStr::new(Attachment::mime()),
                         Bytes::from(body),
                     )
                     .await,

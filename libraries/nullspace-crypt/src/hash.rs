@@ -83,6 +83,11 @@ pub trait BcsHashExt: Serialize {
     ///
     /// Panics if serialization fails.
     fn bcs_hash(&self) -> Hash;
+
+    /// Serialize with BCS and hash the resulting bytes using a domain key.
+    ///
+    /// Panics if serialization fails.
+    fn bcs_keyed_hash(&self, domain: &str) -> Hash;
 }
 
 impl<T> BcsHashExt for T
@@ -92,5 +97,10 @@ where
     fn bcs_hash(&self) -> Hash {
         let bytes = bcs::to_bytes(self).expect("bcs serialization failed");
         Hash::digest(&bytes)
+    }
+
+    fn bcs_keyed_hash(&self, domain: &str) -> Hash {
+        let bytes = bcs::to_bytes(self).expect("bcs serialization failed");
+        Hash::keyed_digest(domain.as_bytes(), &bytes)
     }
 }

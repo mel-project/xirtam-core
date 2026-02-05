@@ -2,16 +2,27 @@
 
 The Signal Protocol (formerly known as Axolotl) and variations on it is the de facto standard for end-to-end encrypted messaging. Software using it includes Signal, WhatsApp, Facebook Messenger, Matrix (through its Olm and Megolm variations), Google Messages...
 
-But Nullspace intentionally uses an E2EE scheme *very different from Signal Protocol*. We systematically avoid the "key ratcheting" design of Signal Protocol, etc, etc.
+Nullspace intentionally uses an E2EE scheme *very different from Signal Protocol*. We systematically avoid the "key ratcheting" design of Signal Protocol, trading off certain security features that make sense only in certain edge cases, and return get a simpler protocol, easier implementation, and *much* better performance in scenarios such as extremely large groups.
 
-## Interesting design features
+## Nullspace's "contrarian" cryptography
 
-Some parts of the E2EE design are fairly conventional (e.g. we use XChaCha20, Ed25519, and Curve25519). Here we list some of the most "contrarian" design features.
+The two major differences in Nullspace's E2EE security model and that of Signal Protocol are actually that we *don't* have two properties that Signal does have:
+- **Deniability**: users cannot prove to a third party [give a definition]
+- **Fine-grained forward secrecy (FS) and post-compromise secrecy**: [give a definition]
 
-- **We intentionally don't care about deniability**. 
-    - Deniability complicates protocol design and is effectively impossible for large groups, where each message's authenticity must be verifiable by an unbounded number of counterparties, so triple-DH-style implicit authentication isn't going to work. (Even MLS isn't an exception to this rule; deniability there requires O(n^2) communication patterns over deniable 1-to-1 channels to distribute per-group signing keys on joining/leaving, which largely defeats the purpose of the complex machinery required to make ratcheting scale). 
-    - Varying deniability between groups and DMs, or small groups and large groups, is unintuitive to users. Users will be surprised if, say, nobody can fake a chat transcript in a group, but people can fake chat transcripts in DMs; "can I ask for proof for this scandalous Nullspace convo going viral" should have a uniform answer either way.
-    - Deniability also disproportionately impacts *more user-empowering* forms of non-repudiation while minimally affecting problematic forms. Powerful third parties have really good ways of getting proof that somebody said something, like subpoenaing server logs and confiscating devices, that don't require cryptographic non-repudiation. Deniable systems also don't prevent providers from offering effectively non-deniable "abuse report" features, i.e. users snitching each other out to the server (a unique server-side ID of the message and a copy of the unique symmetric key used to encrypt that message is enough to prove to the server that somebody said something). On the other hand, users can no longer trust, say, forwarded messages purporting to be from other users; if preventing forging "message quotes" is done by server-side logic instead, then it's even worse, since malicious servers can easily fool users who are accustomed to trusting the "original author" field displayed in the UI.
+### On deniability
+
+Deniability is obviously a desirable feature. All else being equal, a protocol with deniability is more secure than a protocol without.
+
+The problem is that all else is *not* equal. Deniability complicates protocol design and is effectively impossible for large groups. Each message's authenticity must be verifiable by an unbounded number of counterparties, so triple-DH-style implicit authentication isn't going to work. (Even MLS isn't an exception to this rule; deniability there requires O(n^2) communication patterns over deniable 1-to-1 channels to distribute per-group signing keys on joining/leaving, which largely defeats the purpose of the complex machinery required to make ratcheting scale). 
+
+This means that almost every Varying deniability between groups and DMs, or small groups and large groups, is also unintuitive to users. Users will be surprised if group chat transcripts can't be faked, but people can fake chat transcripts in DMs. From a UX standpoint, "can I ask for proof for this scandalous Nullspace convo going viral" should have a uniform answer either way.
+
+Finally, deniability also disproportionately impacts *more user-empowering* forms of non-repudiation while minimally affecting problematic forms. Here are some scenarios where 
+
+Powerful third parties have really good ways of getting proof that somebody said something, like subpoenaing server logs and confiscating devices, that don't require cryptographic non-repudiation. Deniable systems also don't prevent providers from offering effectively non-deniable "abuse report" features, i.e. users snitching each other out to the server (a unique server-side ID of the message and a copy of the unique symmetric key used to encrypt that message is enough to prove to the server that somebody said something). On the other hand, users can no longer trust, say, forwarded messages purporting to be from other users; if preventing forging "message quotes" is done by server-side logic instead, then it's even worse, since malicious servers can easily fool users who are accustomed to trusting the "original author" field displayed in the UI.
+
+
 - **We use periodic rekeying rather than ratcheting**. Yes, this does mean we give up message-level FS/PCS.
     - Real-world compromise blast radii are *far* bigger than compromising a single key. There just isn't a realistic scenario where 1. all the keys on a device get compromised 2. no previous message history gets compromised 3. the attacker can't impersonate the user to download more messages, participate in further ratcheting, etc, at least for a small amount of time. 
     - This means that a *cryptographic* compromise blast radius of smaller than a few hours is unlikely to improve security. Message-granularity FS/PCS is way overkill. Periodic rekeying is a perfectly reasonable way of getting coarse-grained FS/PCS, where compromising all keys on a device allows decrypting messages within a few hours in the future and the past, but nothing further.

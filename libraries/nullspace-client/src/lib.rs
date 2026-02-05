@@ -11,6 +11,7 @@ pub mod internal;
 mod long_poll;
 mod main_loop;
 mod medium_keys;
+mod profile;
 mod rpc_pool;
 mod retry;
 mod server;

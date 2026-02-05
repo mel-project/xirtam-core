@@ -1,7 +1,7 @@
+use bytes::Bytes;
 use derivative::Derivative;
 use nullspace_crypt::aead::AeadKey;
 use nullspace_crypt::hash::Hash;
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_with::base64::{Base64, UrlSafe};
 use serde_with::formats::Unpadded;
@@ -10,13 +10,19 @@ use smol_str::SmolStr;
 
 use crate::event::EventPayload;
 
-/// A fragment root, which summarizes a bunch of fragments into a single artifact. This is something that can be sent in messages to represent attachments, for example.
+/// An attachment, which assigns a filename and mime to a series of encrypted fragments. This is something that can be sent in messages to represent attachments, for example.
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct FragmentRoot {
+pub struct Attachment {
     pub filename: SmolStr,
     pub mime: SmolStr,
     pub children: Vec<(Hash, u64)>,
     pub content_key: AeadKey,
+}
+
+impl EventPayload for Attachment {
+    fn mime() -> &'static str {
+        "application/vnd.nullspace.v1.attachment"
+    }
 }
 
 /// A fragment node, which contains pointers to other fragment nodes and/or leaves.
@@ -45,7 +51,7 @@ pub enum Fragment {
     Leaf(FragmentLeaf),
 }
 
-impl FragmentRoot {
+impl Attachment {
     pub fn total_size(&self) -> u64 {
         self.children.iter().map(|(_, size)| *size).sum()
     }
@@ -54,11 +60,5 @@ impl FragmentRoot {
 impl FragmentNode {
     pub fn total_size(&self) -> u64 {
         self.children.iter().map(|(_, size)| *size).sum()
-    }
-}
-
-impl EventPayload for FragmentRoot {
-    fn mime() -> &'static str {
-        "application/vnd.nullspace.v1.attachment"
     }
 }

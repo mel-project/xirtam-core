@@ -173,10 +173,14 @@ async fn process_group_message_entry(
         .get_user_descriptor(&sender)
         .await?
         .context("sender username not in directory")?;
-    let content_bytes = signed
-        .verify_bytes(sender_descriptor.root_cert_hash)
+    let message = signed
+        .verify_blob(sender_descriptor.root_cert_hash)
         .map_err(|_| anyhow::anyhow!("failed to verify group message"))?;
-    let content: Event = bcs::from_bytes(&content_bytes)?;
+    if message.kind != Blob::V1_MESSAGE_CONTENT {
+        warn!(kind = %message.kind, "ignoring non-message-content group message");
+        return Ok(());
+    }
+    let content: Event = bcs::from_bytes(&message.inner)?;
     let recipient = match content.recipient {
         Recipient::Group(group_id) => group_id,
         Recipient::User(username) => {
@@ -189,9 +193,9 @@ async fn process_group_message_entry(
         return Ok(());
     }
     let mut conn = db.acquire().await?;
-    if content.mime == nullspace_structs::fragment::FragmentRoot::mime() {
+    if content.mime == nullspace_structs::fragment::Attachment::mime() {
         if let Ok(root) =
-            serde_json::from_slice::<nullspace_structs::fragment::FragmentRoot>(&content.body)
+            serde_json::from_slice::<nullspace_structs::fragment::Attachment>(&content.body)
         {
             let _ = store_attachment_root(&mut conn, &sender, &root).await;
         }
@@ -231,10 +235,17 @@ async fn process_group_management_entry(
         .get_user_descriptor(&sender)
         .await?
         .context("sender username not in directory")?;
-    let content_bytes = signed
-        .verify_bytes(sender_descriptor.root_cert_hash)
+    let message = signed
+        .verify_blob(sender_descriptor.root_cert_hash)
         .map_err(|_| anyhow::anyhow!("failed to verify management message"))?;
-    let content: Event = bcs::from_bytes(&content_bytes)?;
+    if message.kind != Blob::V1_MESSAGE_CONTENT {
+        warn!(
+            kind = %message.kind,
+            "ignoring non-message-content group management message",
+        );
+        return Ok(());
+    }
+    let content: Event = bcs::from_bytes(&message.inner)?;
     let recipient = match content.recipient {
         Recipient::Group(group_id) => group_id,
         Recipient::User(username) => {
