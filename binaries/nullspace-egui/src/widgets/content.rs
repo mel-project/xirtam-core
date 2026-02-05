@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::utils::color::username_color;
 
 use eframe::egui::{Response, RichText, Widget};
-use egui::{Color32, ProgressBar, Rect, Sense, TextFormat};
+use egui::{Color32, ProgressBar, TextFormat};
 use egui::{TextStyle, text::LayoutJob};
 use egui_hooks::UseHookExt;
 use nullspace_client::internal::MessageContent;
@@ -20,6 +20,8 @@ use crate::utils::units::{format_filesize, unit_for_bytes};
 pub struct Content<'a> {
     pub app: &'a mut NullspaceApp,
     pub message: &'a nullspace_client::internal::ConvoMessage,
+    pub sender_label: String,
+    pub sender_tooltip: Option<String>,
 }
 
 impl Widget for Content<'_> {
@@ -42,7 +44,12 @@ impl Widget for Content<'_> {
         let sender_color = username_color(&self.message.sender);
 
         ui.horizontal_top(|ui| {
-            ui.colored_label(sender_color, format!("{}: ", self.message.sender));
+            let mut sender_response =
+                ui.colored_label(sender_color, format!("{}: ", self.sender_label));
+            if let Some(tooltip) = self.sender_tooltip.as_ref() {
+                sender_response = sender_response.on_hover_text(tooltip);
+            }
+            let _ = sender_response;
             ui.vertical(|ui| {
                 match &self.message.body {
                     MessageContent::GroupInvite { invite_id } => {

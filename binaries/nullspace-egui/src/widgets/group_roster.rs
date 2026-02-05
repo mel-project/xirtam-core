@@ -36,8 +36,35 @@ impl Widget for GroupRoster<'_> {
 
                 match members {
                     Ok(members) => {
+                        let mut base_names: std::collections::HashMap<
+                            UserName,
+                            String,
+                        > = std::collections::HashMap::new();
+                        let mut name_counts: std::collections::HashMap<String, usize> =
+                            std::collections::HashMap::new();
+                        for member in &members {
+                            let base = self
+                                .app
+                                .state
+                                .profile_loader
+                                .label_for(self.app.client.rpc(), &member.username)
+                                .display;
+                            name_counts
+                                .entry(base.clone())
+                                .and_modify(|count| *count += 1)
+                                .or_insert(1);
+                            base_names.insert(member.username.clone(), base);
+                        }
                         for member in members {
-                            let mut label = member.username.to_string();
+                            let base = base_names
+                                .get(&member.username)
+                                .cloned()
+                                .unwrap_or_else(|| member.username.to_string());
+                            let mut label = if name_counts.get(&base).copied().unwrap_or(0) > 1 {
+                                format!("{base} ({})", member.username)
+                            } else {
+                                base
+                            };
                             if member.is_admin {
                                 label.push_str(" [admin]");
                             }

@@ -22,6 +22,7 @@ use url::Url;
 use crate::events::{event_loop, spawn_audio_thread};
 use crate::fonts::load_fonts;
 use crate::utils::prefs::PrefData;
+use crate::utils::profile_loader::ProfileLoader;
 
 mod events;
 mod fonts;
@@ -54,6 +55,7 @@ struct NullspaceApp {
     focused: Arc<AtomicBool>,
     prefs_path: PathBuf,
     file_dialog: EguiFileDialog,
+    profile_file_dialog: EguiFileDialog,
     tray: Option<tray::Tray>,
     tray_hidden: bool,
     pending_quit: bool,
@@ -69,6 +71,8 @@ struct AppState {
     error_dialog: Option<String>,
     prefs: PrefData,
     last_saved_prefs: PrefData,
+
+    profile_loader: ProfileLoader,
 
     attach_updates: u64,
 
@@ -134,6 +138,7 @@ impl NullspaceApp {
             focused,
             prefs_path,
             file_dialog: EguiFileDialog::new(),
+            profile_file_dialog: EguiFileDialog::new(),
             tray,
             tray_hidden: false,
             pending_quit: false,

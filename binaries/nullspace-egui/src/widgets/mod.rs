@@ -5,4 +5,5 @@ pub mod avatar;
 pub mod convo;
 pub mod content;
 pub mod group_roster;
+pub mod profile;
 pub mod preferences;

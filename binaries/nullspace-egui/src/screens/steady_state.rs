@@ -12,6 +12,7 @@ use crate::widgets::add_contact::AddContact;
 use crate::widgets::add_device::AddDevice;
 use crate::widgets::add_group::AddGroup;
 use crate::widgets::convo::Convo;
+use crate::widgets::profile::Profile;
 use crate::widgets::preferences::Preferences;
 
 pub struct SteadyState<'a>(pub &'a mut NullspaceApp);
@@ -24,6 +25,7 @@ impl Widget for SteadyState<'_> {
         let mut show_add_group: Var<bool> = ui.use_state(|| false, ()).into_var();
         let mut show_add_device: Var<bool> = ui.use_state(|| false, ()).into_var();
         let mut show_preferences: Var<bool> = ui.use_state(|| false, ()).into_var();
+        let mut show_profile: Var<bool> = ui.use_state(|| false, ()).into_var();
         let convos = ui.use_memo(
             || {
                 let result = pollster::block_on(rpc.convo_list());
@@ -38,6 +40,10 @@ impl Widget for SteadyState<'_> {
                 ui.menu_button("File", |ui| {
                     if ui.button("Preferences").clicked() {
                         *show_preferences = true;
+                        ui.close();
+                    }
+                    if ui.button("Profile…").clicked() {
+                        *show_profile = true;
                         ui.close();
                     }
                     if ui.button("Add device").clicked() {
@@ -86,6 +92,10 @@ impl Widget for SteadyState<'_> {
             app: self.0,
             open: &mut show_preferences,
         });
+        ui.add(Profile {
+            app: self.0,
+            open: &mut show_profile,
+        });
         ui.response()
     }
 }
@@ -110,10 +120,47 @@ impl<'a> SteadyState<'a> {
         ui.separator();
         match convos {
             Ok(lst) => {
+                let mut direct_base_names: std::collections::HashMap<
+                    nullspace_structs::username::UserName,
+                    String,
+                > = std::collections::HashMap::new();
+                let mut direct_counts: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
+
+                for convo in lst {
+                    if let ConvoId::Direct { peer } = &convo.convo_id {
+                        let label = self
+                            .0
+                            .state
+                            .profile_loader
+                            .label_for(self.0.client.rpc(), peer)
+                            .display;
+                        direct_counts
+                            .entry(label.clone())
+                            .and_modify(|count| *count += 1)
+                            .or_insert(1);
+                        direct_base_names.insert(peer.clone(), label);
+                    }
+                }
                 ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
                     for convo in lst {
                         let selection = convo.convo_id.clone();
-                        let label = format_convo_label(&convo.convo_id);
+                        let label = match &convo.convo_id {
+                            ConvoId::Direct { peer } => {
+                                let base = direct_base_names
+                                    .get(peer)
+                                    .cloned()
+                                    .unwrap_or_else(|| peer.to_string());
+                                if direct_counts.get(&base).copied().unwrap_or(0) > 1 {
+                                    format!("{base} ({peer})")
+                                } else {
+                                    base
+                                }
+                            }
+                            ConvoId::Group { group_id } => {
+                                format!("Group {}", short_group_id(group_id))
+                            }
+                        };
                         if ui
                             .selectable_label(*selected_chat == Some(selection.clone()), label)
                             .clicked()
@@ -133,13 +180,6 @@ impl<'a> SteadyState<'a> {
         if let Some(selection) = selected_chat {
             ui.add(Convo(self.0, selection.clone()));
         }
-    }
-}
-
-fn format_convo_label(convo_id: &ConvoId) -> String {
-    match convo_id {
-        ConvoId::Direct { peer } => peer.to_string(),
-        ConvoId::Group { group_id } => format!("Group {}", short_group_id(group_id)),
     }
 }
 

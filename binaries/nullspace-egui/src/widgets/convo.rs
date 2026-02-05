@@ -16,6 +16,7 @@ use tracing::debug;
 use crate::NullspaceApp;
 use crate::promises::flatten_rpc;
 use crate::utils::speed::speed_fmt;
+use crate::widgets::avatar::Avatar;
 use crate::widgets::content::Content;
 use crate::widgets::group_roster::GroupRoster;
 use std::collections::BTreeMap;
@@ -178,7 +179,7 @@ fn render_convo(app: &mut NullspaceApp, ui: &mut eframe::egui::Ui, convo_id: Con
 
     ui.allocate_rect(full_rect, egui::Sense::hover());
     ui.scope_builder(egui::UiBuilder::new().max_rect(header_rect), |ui| {
-        render_header(ui, &convo_id, &mut show_roster);
+        render_header(app, ui, &convo_id, &mut show_roster);
     });
     ui.scope_builder(egui::UiBuilder::new().max_rect(messages_rect), |ui| {
         render_messages(ui, app, &convo_id, &mut state, &key);
@@ -207,14 +208,40 @@ fn convo_history(
 }
 
 fn render_header(
+    app: &mut NullspaceApp,
     ui: &mut eframe::egui::Ui,
     convo_id: &ConvoId,
     show_roster: &mut Option<Var<bool>>,
 ) {
     match convo_id {
         ConvoId::Direct { peer } => {
+            let view = app.state.profile_loader.view(app.client.rpc(), peer);
+            let display = view
+                .display_name
+                .clone()
+                .unwrap_or_else(|| peer.to_string());
             ui.horizontal_centered(|ui| {
-                ui.heading(peer.to_string());
+                let size = 24.0;
+                if let Some(attachment) = view.avatar.as_ref() {
+                    ui.add(Avatar {
+                        app,
+                        sender: peer,
+                        attachment,
+                        size,
+                    });
+                } else {
+                    let (rect, _) = ui.allocate_exact_size(
+                        eframe::egui::vec2(size, size),
+                        eframe::egui::Sense::hover(),
+                    );
+                    ui.painter()
+                        .rect_filled(rect, 0.0, eframe::egui::Color32::LIGHT_GRAY);
+                }
+                let mut label = ui.heading(display);
+                if view.display_name.is_some() {
+                    label = label.on_hover_text(peer.as_str());
+                }
+                let _ = label;
                 ui.button("Info")
             });
         }
@@ -240,6 +267,29 @@ fn render_messages(
     state: &mut Var<ConvoState>,
     key: &ConvoId,
 ) {
+    let is_group = matches!(convo_id, ConvoId::Group { .. });
+    let mut sender_base: std::collections::HashMap<
+        nullspace_structs::username::UserName,
+        String,
+    > = std::collections::HashMap::new();
+    for item in state.messages.values() {
+        if !sender_base.contains_key(&item.sender) {
+            let base = app
+                .state
+                .profile_loader
+                .label_for(app.client.rpc(), &item.sender)
+                .display;
+            sender_base.insert(item.sender.clone(), base);
+        }
+    }
+    let mut display_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for base in sender_base.values() {
+        display_counts
+            .entry(base.clone())
+            .and_modify(|count| *count += 1)
+            .or_insert(1);
+    }
     let mut stick_to_bottom: Var<bool> = ui.use_state(|| true, (key.clone(), "stick")).into_var();
     let scroll_output = ScrollArea::vertical()
         .id_salt("scroll")
@@ -256,7 +306,23 @@ fn render_messages(
                     ui.add_space(4.0);
                     last_date = Some(date);
                 }
-                render_row(ui, item, app);
+                let base = sender_base
+                    .get(&item.sender)
+                    .cloned()
+                    .unwrap_or_else(|| item.sender.to_string());
+                let label = if is_group
+                    && display_counts.get(&base).copied().unwrap_or(0) > 1
+                {
+                    format!("{base} ({})", item.sender)
+                } else {
+                    base.clone()
+                };
+                let tooltip = if label.contains(item.sender.as_str()) {
+                    None
+                } else {
+                    Some(item.sender.to_string())
+                };
+                render_row(ui, item, app, label, tooltip);
             }
         });
     let max_offset = (scroll_output.content_size.y - scroll_output.inner_rect.height()).max(0.0);
@@ -379,17 +445,12 @@ fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId
     let send_now = enter_pressed;
     if send_now && !draft.trim().is_empty() {
         let body = Bytes::from(draft.clone());
-        send_message(ui, app, convo_id, body);
+        send_message(app, convo_id, body);
         draft.clear();
     }
 }
 
-fn send_message(
-    ui: &mut eframe::egui::Ui,
-    app: &mut NullspaceApp,
-    convo_id: &ConvoId,
-    body: Bytes,
-) {
+fn send_message(app: &mut NullspaceApp, convo_id: &ConvoId, body: Bytes) {
     let rpc = app.client.rpc();
     let convo_id = convo_id.clone();
     tokio::spawn(async move {
@@ -415,11 +476,22 @@ fn render_roster(
     }
 }
 
-fn render_row(ui: &mut eframe::egui::Ui, item: &ConvoMessage, app: &mut NullspaceApp) {
+fn render_row(
+    ui: &mut eframe::egui::Ui,
+    item: &ConvoMessage,
+    app: &mut NullspaceApp,
+    sender_label: String,
+    sender_tooltip: Option<String>,
+) {
     let timestamp = format_timestamp(item.received_at);
     ui.horizontal_top(|ui| {
         ui.label(RichText::new(format!("[{timestamp}]")).color(Color32::GRAY));
-        ui.add(Content { app, message: item });
+        ui.add(Content {
+            app,
+            message: item,
+            sender_label,
+            sender_tooltip,
+        });
     });
     ui.add_space(4.0);
 }

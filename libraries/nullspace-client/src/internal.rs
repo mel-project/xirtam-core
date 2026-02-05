@@ -97,7 +97,18 @@ pub trait InternalProtocol {
         save_to: PathBuf,
     ) -> Result<(), InternalRpcError>;
 
-    async fn user_profile(&self, username: UserName) -> Result<UserProfile, InternalRpcError>;
+    async fn user_profile(
+        &self,
+        username: UserName,
+    ) -> Result<Option<UserProfile>, InternalRpcError>;
+
+    async fn own_username(&self) -> Result<UserName, InternalRpcError>;
+
+    async fn own_profile_set(
+        &self,
+        display_name: Option<String>,
+        avatar: Option<Attachment>,
+    ) -> Result<(), InternalRpcError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -438,19 +449,61 @@ impl InternalProtocol for InternalImpl {
             .map_err(map_anyhow_err)
     }
 
-    async fn user_profile(&self, username: UserName) -> Result<UserProfile, InternalRpcError> {
+    async fn user_profile(
+        &self,
+        username: UserName,
+    ) -> Result<Option<UserProfile>, InternalRpcError> {
         let db = self.ctx.get(DATABASE);
         let profile = get_profile(&self.ctx, &username)
             .await
-            .map_err(map_anyhow_err)?
-            .ok_or_else(|| InternalRpcError::Other("profile not found".into()))?;
-        if let Some(avatar) = profile.avatar.as_ref() {
+            .map_err(map_anyhow_err)?;
+        if let Some(profile) = profile.as_ref()
+            && let Some(avatar) = profile.avatar.as_ref()
+        {
             let mut conn = db.acquire().await.map_err(internal_err)?;
             store_attachment_root(&mut conn, &username, avatar)
                 .await
                 .map_err(internal_err)?;
         }
         Ok(profile)
+    }
+
+    async fn own_username(&self) -> Result<UserName, InternalRpcError> {
+        let db = self.ctx.get(DATABASE);
+        let identity = Identity::load(db).await.map_err(internal_err)?;
+        Ok(identity.username)
+    }
+
+    async fn own_profile_set(
+        &self,
+        display_name: Option<String>,
+        avatar: Option<Attachment>,
+    ) -> Result<(), InternalRpcError> {
+        let db = self.ctx.get(DATABASE);
+        if !identity_exists(db).await.map_err(internal_err)? {
+            return Err(InternalRpcError::NotReady);
+        }
+        let identity = Identity::load(db).await.map_err(internal_err)?;
+        let Some(server_name) = identity.server_name.clone() else {
+            return Err(InternalRpcError::Other("server name not available".into()));
+        };
+        let server = server_from_name(&self.ctx, &server_name).await?;
+
+        let created = Timestamp::now();
+        let mut profile = UserProfile {
+            display_name,
+            avatar,
+            created,
+            signature: Signature::from_bytes([0u8; 64]),
+        };
+        profile.sign(&identity.device_secret);
+
+        server
+            .v1_profile_set(identity.username, profile)
+            .await
+            .map_err(internal_err)?
+            .map_err(|err| InternalRpcError::Other(err.to_string()))?;
+        Ok(())
     }
 }
 
