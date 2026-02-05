@@ -1,29 +1,32 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use egui::Context;
+use nullspace_client::internal::Event;
 use rodio::{Decoder, OutputStreamBuilder, Sink};
 use std::sync::mpsc::{Receiver, Sender as StdSender};
 use tokio::sync::mpsc::Sender as TokioSender;
-use nullspace_client::internal::{Event, InternalClient};
 
 use crate::notify::show_notification;
+use crate::rpc::get_rpc;
 
 pub async fn event_loop(
-    rpc: InternalClient,
+    ctx: Context,
     event_tx: TokioSender<Event>,
     focused: Arc<AtomicBool>,
     audio_tx: StdSender<Vec<u8>>,
 ) {
+    let rpc = get_rpc();
     let focused_task = focused.clone();
     let mut max_notified = 0;
     loop {
         match rpc.next_event().await {
             Ok(event) => {
-                show_notification(&event, &rpc, &focused_task, &audio_tx, &mut max_notified)
-                    .await;
+                show_notification(&event, &focused_task, &audio_tx, &mut max_notified).await;
                 if event_tx.send(event).await.is_err() {
                     break;
                 }
+                ctx.request_repaint();
             }
             Err(err) => {
                 tracing::warn!(error = %err, "event loop error");

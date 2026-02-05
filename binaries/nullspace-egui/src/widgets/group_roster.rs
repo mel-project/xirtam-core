@@ -10,25 +10,26 @@ use pollster::block_on;
 
 use crate::NullspaceApp;
 use crate::promises::{PromiseSlot, flatten_rpc};
+use crate::rpc::get_rpc;
 
 pub struct GroupRoster<'a> {
     pub app: &'a mut NullspaceApp,
     pub open: &'a mut bool,
     pub group: GroupId,
+    pub user_info: &'a mut Option<UserName>,
 }
 
 impl Widget for GroupRoster<'_> {
     fn ui(self, ui: &mut eframe::egui::Ui) -> Response {
         let mut invite_username: Var<String> = ui.use_state(String::new, ()).into_var();
-        let invite_promise = ui.use_state(PromiseSlot::new, ());
+        let invite_promise = ui.use_state(PromiseSlot::<Result<(), String>>::new, ());
 
         if *self.open {
             Modal::new("group_roster_modal".into()).show(ui.ctx(), |ui| {
                 ui.heading("Group members");
                 let members = ui.use_memo(
                     || {
-                        let rpc = self.app.client.rpc();
-                        let result = block_on(rpc.group_members(self.group));
+                        let result = block_on(get_rpc().group_members(self.group));
                         flatten_rpc(result)
                     },
                     (self.group, self.app.state.msg_updates),
@@ -36,35 +37,13 @@ impl Widget for GroupRoster<'_> {
 
                 match members {
                     Ok(members) => {
-                        let mut base_names: std::collections::HashMap<
-                            UserName,
-                            String,
-                        > = std::collections::HashMap::new();
-                        let mut name_counts: std::collections::HashMap<String, usize> =
-                            std::collections::HashMap::new();
-                        for member in &members {
-                            let base = self
+                        for member in members {
+                            let mut label = self
                                 .app
                                 .state
                                 .profile_loader
-                                .label_for(self.app.client.rpc(), &member.username)
+                                .label_for(&member.username)
                                 .display;
-                            name_counts
-                                .entry(base.clone())
-                                .and_modify(|count| *count += 1)
-                                .or_insert(1);
-                            base_names.insert(member.username.clone(), base);
-                        }
-                        for member in members {
-                            let base = base_names
-                                .get(&member.username)
-                                .cloned()
-                                .unwrap_or_else(|| member.username.to_string());
-                            let mut label = if name_counts.get(&base).copied().unwrap_or(0) > 1 {
-                                format!("{base} ({})", member.username)
-                            } else {
-                                base
-                            };
                             if member.is_admin {
                                 label.push_str(" [admin]");
                             }
@@ -74,8 +53,12 @@ impl Widget for GroupRoster<'_> {
                                 GroupMemberStatus::Banned => "banned",
                             };
                             ui.horizontal(|ui| {
-                                ui.label(label);
+                                let response =
+                                    ui.add(egui::Label::new(label).sense(egui::Sense::click()));
                                 ui.label(RichText::new(status).color(Color32::GRAY));
+                                if response.clicked() {
+                                    *self.user_info = Some(member.username.clone());
+                                }
                             });
                         }
                     }
@@ -101,15 +84,14 @@ impl Widget for GroupRoster<'_> {
                                 return;
                             }
                         };
-                        let rpc = self.app.client.rpc();
                         let group = self.group;
                         let promise = Promise::spawn_async(async move {
-                            flatten_rpc(rpc.group_invite(group, username).await)
+                            flatten_rpc(get_rpc().group_invite(group, username).await)
                         });
                         invite_promise.start(promise);
                     }
                 });
-                if let Some(result) = invite_promise.poll() {
+                if let Some(result) = invite_promise.take() {
                     match result {
                         Ok(()) => {
                             invite_username.clear();

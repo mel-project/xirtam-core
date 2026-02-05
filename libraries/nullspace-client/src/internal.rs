@@ -35,6 +35,7 @@ use crate::directory::DIR_CLIENT;
 use crate::identity::Identity;
 use crate::profile::get_profile;
 use crate::server::get_server_client;
+use crate::user_info::get_user_info;
 
 /// The internal JSON-RPC interface exposed by nullspace-client.
 #[nanorpc_derive]
@@ -109,6 +110,11 @@ pub trait InternalProtocol {
         display_name: Option<String>,
         avatar: Option<Attachment>,
     ) -> Result<(), InternalRpcError>;
+
+    async fn user_details(
+        &self,
+        username: UserName,
+    ) -> Result<UserDetails, InternalRpcError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -186,6 +192,30 @@ pub enum GroupMemberStatus {
     Pending,
     Accepted,
     Banned,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UserDetails {
+    pub username: UserName,
+    pub display_name: Option<String>,
+    pub avatar: Option<Attachment>,
+    pub server_name: Option<ServerName>,
+    pub common_groups: Vec<GroupId>,
+    pub last_dm_message: Option<UserLastMessageSummary>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UserLastMessageSummary {
+    pub received_at: Option<NanoTimestamp>,
+    pub direction: MessageDirection,
+    pub preview: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageDirection {
+    Incoming,
+    Outgoing,
 }
 
 #[derive(Clone, Debug, Error, Serialize, Deserialize)]
@@ -466,6 +496,42 @@ impl InternalProtocol for InternalImpl {
                 .map_err(internal_err)?;
         }
         Ok(profile)
+    }
+
+    async fn user_details(
+        &self,
+        username: UserName,
+    ) -> Result<UserDetails, InternalRpcError> {
+        let db = self.ctx.get(DATABASE);
+        if !identity_exists(db).await.map_err(internal_err)? {
+            return Err(InternalRpcError::NotReady);
+        }
+        let identity = Identity::load(db).await.map_err(internal_err)?;
+        let profile = self.user_profile(username.clone()).await?;
+        let user_info = get_user_info(&self.ctx, &username)
+            .await
+            .map_err(map_anyhow_err)?;
+
+        let (display_name, avatar) = match profile {
+            Some(profile) => (profile.display_name, profile.avatar),
+            None => (None, None),
+        };
+
+        let common_groups = common_groups(db, &identity.username, &username)
+            .await
+            .map_err(internal_err)?;
+        let last_dm_message = last_dm_message_summary(db, &identity.username, &username)
+            .await
+            .map_err(internal_err)?;
+
+        Ok(UserDetails {
+            username,
+            display_name,
+            avatar,
+            server_name: Some(user_info.server_name.clone()),
+            common_groups,
+            last_dm_message,
+        })
     }
 
     async fn own_username(&self) -> Result<UserName, InternalRpcError> {
@@ -789,6 +855,87 @@ async fn convo_history(
         });
     }
     Ok(out)
+}
+
+async fn common_groups(
+    db: &sqlx::SqlitePool,
+    local_username: &UserName,
+    other_username: &UserName,
+) -> anyhow::Result<Vec<GroupId>> {
+    let rows = sqlx::query_scalar::<_, Vec<u8>>(
+        "SELECT DISTINCT gm_other.group_id \
+         FROM group_members gm_other \
+         JOIN group_members gm_self ON gm_self.group_id = gm_other.group_id \
+         WHERE gm_other.username = ? AND gm_self.username = ? \
+           AND gm_other.status IN ('pending', 'accepted') \
+           AND gm_self.status IN ('pending', 'accepted') \
+         ORDER BY gm_other.group_id",
+    )
+    .bind(other_username.as_str())
+    .bind(local_username.as_str())
+    .fetch_all(db)
+    .await?;
+
+    let mut out = Vec::new();
+    for bytes in rows {
+        if bytes.len() != 32 {
+            tracing::warn!(len = bytes.len(), "invalid group id bytes");
+            continue;
+        }
+        let mut buf = [0u8; 32];
+        buf.copy_from_slice(&bytes);
+        out.push(GroupId::from_bytes(buf));
+    }
+    Ok(out)
+}
+
+async fn last_dm_message_summary(
+    db: &sqlx::SqlitePool,
+    local_username: &UserName,
+    other_username: &UserName,
+) -> anyhow::Result<Option<UserLastMessageSummary>> {
+    let convo_id = ConvoId::Direct {
+        peer: other_username.clone(),
+    };
+    let messages = convo_history(db, convo_id, None, None, 1).await?;
+    let Some(message) = messages.last() else {
+        return Ok(None);
+    };
+    let direction = if message.sender == *local_username {
+        MessageDirection::Outgoing
+    } else {
+        MessageDirection::Incoming
+    };
+    Ok(Some(UserLastMessageSummary {
+        received_at: message.received_at,
+        direction,
+        preview: message_preview(&message.body),
+    }))
+}
+
+fn message_preview(body: &MessageContent) -> String {
+    match body {
+        MessageContent::PlainText(text) | MessageContent::Markdown(text) => {
+            preview_text(text, 80)
+        }
+        MessageContent::Attachment { .. } => "Attachment".to_string(),
+        MessageContent::GroupInvite { .. } => "Group invite".to_string(),
+    }
+}
+
+fn preview_text(text: &str, limit: usize) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars();
+    for _ in 0..limit {
+        let Some(ch) = chars.next() else {
+            return out;
+        };
+        out.push(ch);
+    }
+    if chars.next().is_some() {
+        out.push('…');
+    }
+    out
 }
 
 async fn decode_message_content(

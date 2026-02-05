@@ -15,10 +15,12 @@ use tracing::debug;
 
 use crate::NullspaceApp;
 use crate::promises::flatten_rpc;
+use crate::rpc::get_rpc;
 use crate::utils::speed::speed_fmt;
 use crate::widgets::avatar::Avatar;
 use crate::widgets::content::Content;
 use crate::widgets::group_roster::GroupRoster;
+use crate::widgets::user_info::UserInfo;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -144,9 +146,8 @@ impl Widget for Convo<'_> {
 fn render_convo(app: &mut NullspaceApp, ui: &mut eframe::egui::Ui, convo_id: ConvoId) -> Response {
     let update_count = app.state.msg_updates;
     let key = convo_id.clone();
-    let mut state: Var<ConvoState> = ui
-        .use_state(ConvoState::default, (key.clone(), "state"))
-        .into_var();
+    let mut state: Var<ConvoState> = ui.use_state(ConvoState::default, ()).into_var();
+    let mut user_info_target: Option<nullspace_structs::username::UserName> = None;
     let mut show_roster = match convo_id {
         ConvoId::Group { .. } => Some(ui.use_state(|| false, (key.clone(), "roster")).into_var()),
         ConvoId::Direct { .. } => None,
@@ -179,7 +180,7 @@ fn render_convo(app: &mut NullspaceApp, ui: &mut eframe::egui::Ui, convo_id: Con
 
     ui.allocate_rect(full_rect, egui::Sense::hover());
     ui.scope_builder(egui::UiBuilder::new().max_rect(header_rect), |ui| {
-        render_header(app, ui, &convo_id, &mut show_roster);
+        render_header(app, ui, &convo_id, &mut show_roster, &mut user_info_target);
     });
     ui.scope_builder(egui::UiBuilder::new().max_rect(messages_rect), |ui| {
         render_messages(ui, app, &convo_id, &mut state, &key);
@@ -188,20 +189,20 @@ fn render_convo(app: &mut NullspaceApp, ui: &mut eframe::egui::Ui, convo_id: Con
         render_composer(ui, app, &convo_id);
     });
 
-    render_roster(ui, app, &convo_id, &mut show_roster);
+    render_roster(ui, app, &convo_id, &mut show_roster, &mut user_info_target);
+    ui.add(UserInfo(user_info_target));
 
     ui.response()
 }
 
 fn convo_history(
-    app: &mut NullspaceApp,
+    _app: &mut NullspaceApp,
     convo_id: &ConvoId,
     before: Option<i64>,
     after: Option<i64>,
     limit: u16,
 ) -> Result<Vec<ConvoMessage>, String> {
-    let rpc = app.client.rpc();
-    let result = rpc
+    let result = get_rpc()
         .convo_history(convo_id.clone(), before, after, limit)
         .block_on();
     flatten_rpc(result)
@@ -212,19 +213,16 @@ fn render_header(
     ui: &mut eframe::egui::Ui,
     convo_id: &ConvoId,
     show_roster: &mut Option<Var<bool>>,
+    user_info_target: &mut Option<nullspace_structs::username::UserName>,
 ) {
     match convo_id {
         ConvoId::Direct { peer } => {
-            let view = app.state.profile_loader.view(app.client.rpc(), peer);
-            let display = view
-                .display_name
-                .clone()
-                .unwrap_or_else(|| peer.to_string());
+            let view = app.state.profile_loader.view(peer);
+            let display = app.state.profile_loader.label_for(peer).display;
             ui.horizontal_centered(|ui| {
                 let size = 24.0;
                 if let Some(attachment) = view.avatar.as_ref() {
                     ui.add(Avatar {
-                        app,
                         sender: peer,
                         attachment,
                         size,
@@ -237,12 +235,10 @@ fn render_header(
                     ui.painter()
                         .rect_filled(rect, 0.0, eframe::egui::Color32::LIGHT_GRAY);
                 }
-                let mut label = ui.heading(display);
-                if view.display_name.is_some() {
-                    label = label.on_hover_text(peer.as_str());
+                ui.heading(display);
+                if ui.button("Info").clicked() {
+                    *user_info_target = Some(peer.clone());
                 }
-                let _ = label;
-                ui.button("Info")
             });
         }
         ConvoId::Group { group_id } => {
@@ -267,28 +263,15 @@ fn render_messages(
     state: &mut Var<ConvoState>,
     key: &ConvoId,
 ) {
-    let is_group = matches!(convo_id, ConvoId::Group { .. });
-    let mut sender_base: std::collections::HashMap<
+    let mut sender_labels: std::collections::HashMap<
         nullspace_structs::username::UserName,
         String,
     > = std::collections::HashMap::new();
     for item in state.messages.values() {
-        if !sender_base.contains_key(&item.sender) {
-            let base = app
-                .state
-                .profile_loader
-                .label_for(app.client.rpc(), &item.sender)
-                .display;
-            sender_base.insert(item.sender.clone(), base);
+        if !sender_labels.contains_key(&item.sender) {
+            let label = app.state.profile_loader.label_for(&item.sender).display;
+            sender_labels.insert(item.sender.clone(), label);
         }
-    }
-    let mut display_counts: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
-    for base in sender_base.values() {
-        display_counts
-            .entry(base.clone())
-            .and_modify(|count| *count += 1)
-            .or_insert(1);
     }
     let mut stick_to_bottom: Var<bool> = ui.use_state(|| true, (key.clone(), "stick")).into_var();
     let scroll_output = ScrollArea::vertical()
@@ -306,23 +289,11 @@ fn render_messages(
                     ui.add_space(4.0);
                     last_date = Some(date);
                 }
-                let base = sender_base
+                let label = sender_labels
                     .get(&item.sender)
                     .cloned()
                     .unwrap_or_else(|| item.sender.to_string());
-                let label = if is_group
-                    && display_counts.get(&base).copied().unwrap_or(0) > 1
-                {
-                    format!("{base} ({})", item.sender)
-                } else {
-                    base.clone()
-                };
-                let tooltip = if label.contains(item.sender.as_str()) {
-                    None
-                } else {
-                    Some(item.sender.to_string())
-                };
-                render_row(ui, item, app, label, tooltip);
+                render_row(ui, item, app, label);
             }
         });
     let max_offset = (scroll_output.content_size.y - scroll_output.inner_rect.height()).max(0.0);
@@ -335,14 +306,13 @@ fn render_messages(
     }
 }
 
-fn start_upload(app: &mut NullspaceApp, attachment: &mut Var<Option<i64>>, path: PathBuf) {
+fn start_upload(_app: &mut NullspaceApp, attachment: &mut Var<Option<i64>>, path: PathBuf) {
     tracing::debug!(
         path = debug(&path),
         "picked an attachment, starting upload..."
     );
-    let rpc = app.client.rpc();
     let mime = infer_mime(&path);
-    let Ok(upload_id) = flatten_rpc(rpc.attachment_upload(path, mime).block_on()) else {
+    let Ok(upload_id) = flatten_rpc(get_rpc().attachment_upload(path, mime).block_on()) else {
         return;
     };
     attachment.replace(upload_id);
@@ -375,16 +345,16 @@ fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId
                     .insert(upload_id, "failed to encode attachment".into());
                 return;
             };
-            let rpc = app.client.rpc();
             let convo_id = convo_id.clone();
             tokio::spawn(async move {
                 let _ = flatten_rpc(
-                    rpc.convo_send(
-                        convo_id,
-                        SmolStr::new(Attachment::mime()),
-                        Bytes::from(body),
-                    )
-                    .await,
+                    get_rpc()
+                        .convo_send(
+                            convo_id,
+                            SmolStr::new(Attachment::mime()),
+                            Bytes::from(body),
+                        )
+                        .await,
                 );
             });
             *attachment = None;
@@ -450,11 +420,14 @@ fn render_composer(ui: &mut egui::Ui, app: &mut NullspaceApp, convo_id: &ConvoId
     }
 }
 
-fn send_message(app: &mut NullspaceApp, convo_id: &ConvoId, body: Bytes) {
-    let rpc = app.client.rpc();
+fn send_message(_app: &mut NullspaceApp, convo_id: &ConvoId, body: Bytes) {
     let convo_id = convo_id.clone();
     tokio::spawn(async move {
-        let _ = flatten_rpc(rpc.convo_send(convo_id, "text/markdown".into(), body).await);
+        let _ = flatten_rpc(
+            get_rpc()
+                .convo_send(convo_id, "text/markdown".into(), body)
+                .await,
+        );
     });
 }
 
@@ -463,6 +436,7 @@ fn render_roster(
     app: &mut NullspaceApp,
     convo_id: &ConvoId,
     show_roster: &mut Option<Var<bool>>,
+    user_info_target: &mut Option<nullspace_structs::username::UserName>,
 ) {
     let ConvoId::Group { group_id } = convo_id else {
         return;
@@ -472,6 +446,7 @@ fn render_roster(
             app,
             open: show_roster,
             group: *group_id,
+            user_info: user_info_target,
         });
     }
 }
@@ -481,7 +456,6 @@ fn render_row(
     item: &ConvoMessage,
     app: &mut NullspaceApp,
     sender_label: String,
-    sender_tooltip: Option<String>,
 ) {
     let timestamp = format_timestamp(item.received_at);
     ui.horizontal_top(|ui| {
@@ -490,7 +464,6 @@ fn render_row(
             app,
             message: item,
             sender_label,
-            sender_tooltip,
         });
     });
     ui.add_space(4.0);

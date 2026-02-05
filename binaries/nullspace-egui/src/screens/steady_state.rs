@@ -4,10 +4,9 @@ use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
 use nullspace_client::internal::{ConvoId, ConvoSummary};
 
-use std::sync::Arc;
-
 use crate::NullspaceApp;
 use crate::promises::flatten_rpc;
+use crate::rpc::get_rpc;
 use crate::widgets::add_contact::AddContact;
 use crate::widgets::add_device::AddDevice;
 use crate::widgets::add_group::AddGroup;
@@ -19,7 +18,6 @@ pub struct SteadyState<'a>(pub &'a mut NullspaceApp);
 
 impl Widget for SteadyState<'_> {
     fn ui(mut self, ui: &mut eframe::egui::Ui) -> Response {
-        let rpc = Arc::new(self.0.client.rpc());
         let mut selected_chat: Var<Option<ConvoId>> = ui.use_state(|| None, ()).into_var();
         let mut show_add_contact: Var<bool> = ui.use_state(|| false, ()).into_var();
         let mut show_add_group: Var<bool> = ui.use_state(|| false, ()).into_var();
@@ -28,7 +26,7 @@ impl Widget for SteadyState<'_> {
         let mut show_profile: Var<bool> = ui.use_state(|| false, ()).into_var();
         let convos = ui.use_memo(
             || {
-                let result = pollster::block_on(rpc.convo_list());
+                let result = pollster::block_on(get_rpc().convo_list());
                 flatten_rpc(result)
             },
             self.0.state.msg_updates,
@@ -120,42 +118,16 @@ impl<'a> SteadyState<'a> {
         ui.separator();
         match convos {
             Ok(lst) => {
-                let mut direct_base_names: std::collections::HashMap<
-                    nullspace_structs::username::UserName,
-                    String,
-                > = std::collections::HashMap::new();
-                let mut direct_counts: std::collections::HashMap<String, usize> =
-                    std::collections::HashMap::new();
-
-                for convo in lst {
-                    if let ConvoId::Direct { peer } = &convo.convo_id {
-                        let label = self
-                            .0
-                            .state
-                            .profile_loader
-                            .label_for(self.0.client.rpc(), peer)
-                            .display;
-                        direct_counts
-                            .entry(label.clone())
-                            .and_modify(|count| *count += 1)
-                            .or_insert(1);
-                        direct_base_names.insert(peer.clone(), label);
-                    }
-                }
                 ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
                     for convo in lst {
                         let selection = convo.convo_id.clone();
                         let label = match &convo.convo_id {
                             ConvoId::Direct { peer } => {
-                                let base = direct_base_names
-                                    .get(peer)
-                                    .cloned()
-                                    .unwrap_or_else(|| peer.to_string());
-                                if direct_counts.get(&base).copied().unwrap_or(0) > 1 {
-                                    format!("{base} ({peer})")
-                                } else {
-                                    base
-                                }
+                                self.0
+                                    .state
+                                    .profile_loader
+                                    .label_for(peer)
+                                    .display
                             }
                             ConvoId::Group { group_id } => {
                                 format!("Group {}", short_group_id(group_id))

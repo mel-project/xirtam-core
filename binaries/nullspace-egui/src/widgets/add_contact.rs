@@ -8,6 +8,7 @@ use nullspace_structs::username::UserName;
 
 use crate::NullspaceApp;
 use crate::promises::{PromiseSlot, flatten_rpc};
+use crate::rpc::get_rpc;
 
 pub struct AddContact<'a> {
     pub app: &'a mut NullspaceApp,
@@ -18,7 +19,7 @@ impl Widget for AddContact<'_> {
     fn ui(self, ui: &mut eframe::egui::Ui) -> Response {
         let mut username_str: Var<String> = ui.use_state(String::new, ()).into_var();
         let mut message_str: Var<String> = ui.use_state(String::new, ()).into_var();
-        let add_contact = ui.use_state(PromiseSlot::new, ());
+        let add_contact = ui.use_state(PromiseSlot::<Result<(), String>>::new, ());
 
         if *self.open {
             Modal::new("add_contact_modal".into()).show(ui.ctx(), |ui| {
@@ -53,11 +54,11 @@ impl Widget for AddContact<'_> {
                         };
                         let init_msg = message_str.clone();
                         let convo_id = ConvoId::Direct { peer: username };
-                        let rpc = self.app.client.rpc();
                         let body = Bytes::from(init_msg);
                         let promise = Promise::spawn_async(async move {
                             flatten_rpc(
-                                rpc.convo_send(convo_id, "text/plain".into(), body)
+                                get_rpc()
+                                    .convo_send(convo_id, "text/plain".into(), body)
                                     .await,
                             )
                             .map(|_| ())
@@ -68,7 +69,7 @@ impl Widget for AddContact<'_> {
                 if add_contact.is_running() {
                     ui.add(Spinner::new());
                 }
-                if let Some(result) = add_contact.poll() {
+                if let Some(result) = add_contact.take() {
                     match result {
                         Ok(()) => {
                             *self.open = false;

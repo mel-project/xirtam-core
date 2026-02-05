@@ -2,14 +2,20 @@ use std::sync::Mutex;
 
 use poll_promise::Promise;
 
-pub struct PromiseSlot<T: Send + 'static> {
-    inner: Mutex<Option<Promise<T>>>,
+pub struct PromiseSlot<T: Clone + Send + 'static> {
+    inner: Mutex<PromiseState<T>>,
 }
 
-impl<T: Send + 'static> PromiseSlot<T> {
+enum PromiseState<T: Send + 'static> {
+    Idle,
+    Running(Promise<T>),
+    Ready(T),
+}
+
+impl<T: Clone + Send + 'static> PromiseSlot<T> {
     pub fn new() -> Self {
         Self {
-            inner: Mutex::new(None),
+            inner: Mutex::new(PromiseState::Idle),
         }
     }
 
@@ -17,23 +23,48 @@ impl<T: Send + 'static> PromiseSlot<T> {
         let Ok(mut guard) = self.inner.lock() else {
             return false;
         };
-        if guard.is_some() {
-            return false;
+        match &*guard {
+            PromiseState::Running(_) => false,
+            _ => {
+                *guard = PromiseState::Running(promise);
+                true
+            }
         }
-        *guard = Some(promise);
-        true
     }
 
     pub fn poll(&self) -> Option<T> {
         let Ok(mut guard) = self.inner.lock() else {
             return None;
         };
-        let promise = guard.take()?;
-        match promise.try_take() {
-            Ok(value) => Some(value),
-            Err(promise) => {
-                *guard = Some(promise);
-                None
+        match &mut *guard {
+            PromiseState::Idle => None,
+            PromiseState::Ready(value) => Some(value.clone()),
+            PromiseState::Running(promise) => {
+                let value = promise.ready()?.clone();
+                *guard = PromiseState::Ready(value.clone());
+                Some(value)
+            }
+        }
+    }
+
+    pub fn take(&self) -> Option<T> {
+        let Ok(mut guard) = self.inner.lock() else {
+            return None;
+        };
+        match &mut *guard {
+            PromiseState::Idle => None,
+            PromiseState::Ready(_) => {
+                let PromiseState::Ready(value) =
+                    std::mem::replace(&mut *guard, PromiseState::Idle)
+                else {
+                    return None;
+                };
+                Some(value)
+            }
+            PromiseState::Running(promise) => {
+                let value = promise.ready()?.clone();
+                *guard = PromiseState::Idle;
+                Some(value)
             }
         }
     }
@@ -42,7 +73,14 @@ impl<T: Send + 'static> PromiseSlot<T> {
         let Ok(guard) = self.inner.lock() else {
             return false;
         };
-        guard.is_some()
+        matches!(&*guard, PromiseState::Running(_))
+    }
+
+    pub fn is_idle(&self) -> bool {
+        let Ok(guard) = self.inner.lock() else {
+            return false;
+        };
+        matches!(&*guard, PromiseState::Idle)
     }
 }
 

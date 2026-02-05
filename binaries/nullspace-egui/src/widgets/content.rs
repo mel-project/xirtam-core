@@ -13,15 +13,16 @@ use pollster::FutureExt;
 
 use crate::NullspaceApp;
 use crate::promises::flatten_rpc;
+use crate::rpc::get_rpc;
 use crate::utils::markdown::layout_md_raw;
 use crate::utils::speed::speed_fmt;
 use crate::utils::units::{format_filesize, unit_for_bytes};
+use crate::widgets::smooth::SmoothImage;
 
 pub struct Content<'a> {
     pub app: &'a mut NullspaceApp,
     pub message: &'a nullspace_client::internal::ConvoMessage,
     pub sender_label: String,
-    pub sender_tooltip: Option<String>,
 }
 
 impl Widget for Content<'_> {
@@ -44,11 +45,8 @@ impl Widget for Content<'_> {
         let sender_color = username_color(&self.message.sender);
 
         ui.horizontal_top(|ui| {
-            let mut sender_response =
+            let sender_response =
                 ui.colored_label(sender_color, format!("{}: ", self.sender_label));
-            if let Some(tooltip) = self.sender_tooltip.as_ref() {
-                sender_response = sender_response.on_hover_text(tooltip);
-            }
             let _ = sender_response;
             ui.vertical(|ui| {
                 match &self.message.body {
@@ -56,10 +54,9 @@ impl Widget for Content<'_> {
                         ui.horizontal_top(|ui| {
                             ui.colored_label(Color32::GRAY, "Invitation to group");
                             if ui.link("Accept").clicked() {
-                                let rpc = self.app.client.rpc();
                                 let invite_id = *invite_id;
                                 tokio::spawn(async move {
-                                    let _ = flatten_rpc(rpc.group_accept_invite(invite_id).await);
+                                    let _ = flatten_rpc(get_rpc().group_accept_invite(invite_id).await);
                                 });
                             }
                         });
@@ -116,7 +113,7 @@ pub struct AttachmentContent<'a> {
 impl Widget for AttachmentContent<'_> {
     fn ui(self, ui: &mut eframe::egui::Ui) -> Response {
         let status = ui.use_memo(
-            || flatten_rpc(self.app.client.rpc().attachment_status(self.id).block_on()),
+            || flatten_rpc(get_rpc().attachment_status(self.id).block_on()),
             self.app.state.attach_updates,
         );
         let dl_path = status.as_ref().ok().and_then(|s| s.saved_to.as_ref());
@@ -131,8 +128,7 @@ impl Widget for AttachmentContent<'_> {
 
         defmac::defmac!(start_dl => {
             let save_dir = default_download_dir();
-            let rpc = self.app.client.rpc();
-            let _ = flatten_rpc(rpc.attachment_download(self.id, save_dir).block_on());
+            let _ = flatten_rpc(get_rpc().attachment_download(self.id, save_dir).block_on());
         });
         let (unit_scale, unit_suffix) = unit_for_bytes(self.size);
         let size_text = format_filesize(self.size, unit_scale);
@@ -143,18 +139,14 @@ impl Widget for AttachmentContent<'_> {
 
         if self.mime.starts_with("image/") {
             if let Some(path) = dl_path {
-                // WORKAROUND: egui doesn't actually want a "real" URI with URI-encoding etc.
-                let path_str = path.to_string_lossy();
-                #[cfg(windows)]
-                let path_str = path_str.replace('\\', "/");
-                let uri = format!("file://{path_str}");
                 let box_width = ui.available_width().min(500.0);
                 let max_box = egui::vec2(ui.available_width(), box_width * 0.6);
-                ui.add(
-                    egui::Image::from_uri(uri)
-                        .fit_to_exact_size(max_box)
-                        .show_loading_spinner(false),
-                );
+
+                ui.add(SmoothImage {
+                    filename: path.as_path(),
+                    max_size: max_box,
+                    corner_radius: egui::CornerRadius::ZERO,
+                });
             } else if !*image_downloading {
                 if let Some(limit) = self.app.state.prefs.max_auto_image_download_bytes
                     && self.size <= limit

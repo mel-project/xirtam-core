@@ -2026,6 +2026,7 @@ dependencies = [
  "objc2-foundation 0.2.2",
  "parking_lot 0.12.5",
  "percent-encoding",
+ "pollster",
  "profiling",
  "raw-window-handle",
  "ron",
@@ -2035,6 +2036,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
+ "wgpu",
  "windows-sys 0.61.2",
  "winit",
 ]
@@ -4742,6 +4744,7 @@ dependencies = [
  "image",
  "infer",
  "ksni",
+ "moka",
  "notify-rust",
  "nullspace-client",
  "nullspace-crypt",

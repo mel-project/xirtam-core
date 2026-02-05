@@ -5,9 +5,10 @@ use std::sync::mpsc::Sender as StdSender;
 #[cfg(not(target_os = "linux"))]
 use notify_rust::Notification;
 
-use nullspace_client::internal::{ConvoId, Event, InternalClient, MessageContent};
+use nullspace_client::internal::{ConvoId, Event, MessageContent};
 
 use crate::promises::flatten_rpc;
+use crate::rpc::get_rpc;
 
 const NOTIFICATION_SOUND: &[u8] = include_bytes!("sounds/notification.mp3");
 
@@ -27,7 +28,6 @@ async fn send_notification_linux(title: String, body: String) -> Result<(), Stri
 
 pub async fn show_notification(
     event: &Event,
-    rpc: &InternalClient,
     focused: &Arc<AtomicBool>,
     audio_tx: &StdSender<Vec<u8>>,
     max_notified: &mut u64,
@@ -36,7 +36,7 @@ pub async fn show_notification(
         && !focused.load(Ordering::Relaxed)
         && let ConvoId::Direct { peer } = convo_id
     {
-        match flatten_rpc(rpc.convo_history(convo_id.clone(), None, None, 1).await) {
+        match flatten_rpc(get_rpc().convo_history(convo_id.clone(), None, None, 1).await) {
             Ok(messages) => {
                 if let Some(message) = messages.last()
                     && message.sender == *peer

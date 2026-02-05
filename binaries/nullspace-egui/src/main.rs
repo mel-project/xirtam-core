@@ -28,6 +28,7 @@ mod events;
 mod fonts;
 mod notify;
 mod promises;
+mod rpc;
 mod screens;
 mod tray;
 mod utils;
@@ -50,7 +51,6 @@ struct Cli {
 }
 
 struct NullspaceApp {
-    client: Client,
     recv_event: Receiver<Event>,
     focused: Arc<AtomicBool>,
     prefs_path: PathBuf,
@@ -87,11 +87,15 @@ impl NullspaceApp {
     fn new(
         cc: &eframe::CreationContext<'_>,
         client: Client,
-        recv_event: Receiver<Event>,
-        focused: Arc<AtomicBool>,
         prefs_path: PathBuf,
         prefs: PrefData,
     ) -> Self {
+        crate::rpc::init_rpc(client.rpc());
+        let (event_tx, recv_event) = mpsc::channel(64);
+        let focused = Arc::new(AtomicBool::new(true));
+        let audio_tx = spawn_audio_thread();
+        let ctx = cc.egui_ctx.clone();
+        tokio::spawn(event_loop(ctx, event_tx, focused.clone(), audio_tx));
         egui_extras::install_image_loaders(&cc.egui_ctx);
         cc.egui_ctx.set_visuals(egui::Visuals::light());
         catppuccin_egui::set_theme(&cc.egui_ctx, catppuccin_egui::LATTE);
@@ -133,7 +137,6 @@ impl NullspaceApp {
         };
         let supports_hide = supports_hide_window();
         Self {
-            client,
             recv_event,
             focused,
             prefs_path,
@@ -350,21 +353,13 @@ fn main() -> eframe::Result<()> {
             .expect("dir anchor pk"),
     };
     let client = Client::new(config);
-    let rpc = client.rpc();
-    let (event_tx, event_rx) = mpsc::channel(64);
-    let focused = Arc::new(AtomicBool::new(true));
-    let audio_tx = spawn_audio_thread();
-    runtime.spawn(event_loop(rpc, event_tx, focused.clone(), audio_tx));
-    let options = eframe::NativeOptions::default();
+    let mut options = eframe::NativeOptions::default();
+    options.renderer = eframe::Renderer::Wgpu;
 
     eframe::run_native(
         "nullspace-egui",
         options,
-        Box::new(move |cc| {
-            Ok(Box::new(NullspaceApp::new(
-                cc, client, event_rx, focused, prefs_path, prefs,
-            )))
-        }),
+        Box::new(move |cc| Ok(Box::new(NullspaceApp::new(cc, client, prefs_path, prefs)))),
     )
 }
 

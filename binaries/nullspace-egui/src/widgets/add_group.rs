@@ -4,6 +4,7 @@ use poll_promise::Promise;
 
 use crate::NullspaceApp;
 use crate::promises::{PromiseSlot, flatten_rpc};
+use crate::rpc::get_rpc;
 
 pub struct AddGroup<'a> {
     pub app: &'a mut NullspaceApp,
@@ -12,11 +13,11 @@ pub struct AddGroup<'a> {
 
 impl Widget for AddGroup<'_> {
     fn ui(self, ui: &mut eframe::egui::Ui) -> Response {
-        let create_group = ui.use_state(PromiseSlot::new, ());
+        let create_group =
+            ui.use_state(PromiseSlot::<Result<nullspace_client::internal::ConvoId, String>>::new, ());
         let server = ui.use_memo(
             || {
-                let rpc = self.app.client.rpc();
-                let result = pollster::block_on(rpc.own_server());
+                let result = pollster::block_on(get_rpc().own_server());
                 flatten_rpc(result)
             },
             self.app.state.msg_updates,
@@ -46,9 +47,8 @@ impl Widget for AddGroup<'_> {
                         let server = server.clone().unwrap_or_else(|_| {
                             unreachable!("server must be available when create is enabled")
                         });
-                        let rpc = self.app.client.rpc();
                         let promise = Promise::spawn_async(async move {
-                            flatten_rpc(rpc.convo_create_group(server).await)
+                            flatten_rpc(get_rpc().convo_create_group(server).await)
                         });
                         create_group.start(promise);
                     }
@@ -56,7 +56,7 @@ impl Widget for AddGroup<'_> {
                 if create_group.is_running() {
                     ui.add(Spinner::new());
                 }
-                if let Some(result) = create_group.poll() {
+                if let Some(result) = create_group.take() {
                     match result {
                         Ok(_group_id) => {
                             *self.open = false;

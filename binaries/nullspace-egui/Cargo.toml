@@ -6,8 +6,10 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
-catppuccin-egui = { version = "5.7.0", default-features = false, features = ["egui33"] }
-eframe = { version = "0.33.3", features = ["persistence"] }
+catppuccin-egui = { version = "5.7.0", default-features = false, features = [
+    "egui33",
+] }
+eframe = { version = "0.33.3", features = ["persistence", "wgpu"] }
 base64 = "0.22.1"
 bytes = "1.10.1"
 clap = { version = "4.5.40", features = ["derive"] }
@@ -47,6 +49,7 @@ dashmap = "6.1.0"
 defmac = "0.2.1"
 image = "0.25.9"
 font-kit = "0.14.3"
+moka = { version = "0.12.12", features = ["sync"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3.3", default-features = false, features = [

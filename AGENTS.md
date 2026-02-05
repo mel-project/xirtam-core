@@ -18,6 +18,10 @@ When in egui, it's actually *fine* to block on the render thread on an RPC call 
 
 This is doubly so if the RPC call is in a `use_memo` or any other construct that avoids calling it every single render.
 
+## egui_hooks use_state
+
+`use_state` is already keyed by the current `ui.id()` and hook index. The `deps` argument only forces re-initialization *within the same widget id* when it changes. In most cases, pass `()` for deps. Only use deps when you explicitly want to reset state within a single widget instance. For distinct state scopes, prefer `ui.push_id(...)` or `use_hook_as(...)` rather than encoding IDs into deps.
+
 ## Docs maintenance
 
 Keep `docs/SUMMARY.md` in sync with the docs. When adding, removing, or renaming doc pages, update the summary accordingly.

@@ -9,6 +9,7 @@ use poll_promise::Promise;
 
 use crate::NullspaceApp;
 use crate::promises::{PromiseSlot, flatten_rpc};
+use crate::rpc::get_rpc;
 use crate::utils::color::username_color;
 use crate::utils::markdown::layout_md;
 
@@ -29,11 +30,9 @@ impl Widget for Login<'_> {
         let mut server_choice = ui.use_state(|| "~public_test".to_string(), ()).into_var();
         let mut custom_server_str = ui.use_state(|| "".to_string(), ()).into_var();
         let mut bundle_str = ui.use_state(String::new, ()).into_var();
-        let register_info =
-            ui.use_state(|| None::<nullspace_client::internal::RegisterStartInfo>, ());
+
         let register_start = ui.use_state(PromiseSlot::new, ());
         let register_finish = ui.use_state(PromiseSlot::new, ());
-
         Modal::new(ui.next_auto_id()).show(ui.ctx(), |ui| {
             ui.heading("Login or register");
             ui.separator();
@@ -53,21 +52,18 @@ impl Widget for Login<'_> {
                                 return;
                             }
                         };
-                        let rpc = self.0.client.rpc();
                         let promise = Promise::spawn_async(async move {
-                            flatten_rpc(rpc.register_start(username).await)
+                            flatten_rpc(get_rpc().register_start(username).await)
                         });
                         register_start.start(promise);
                     }
-                    if let Some(result) = register_start.poll() {
+                    if let Some(result) = register_start.take() {
                         match result {
                             Ok(Some(info)) => {
-                                register_info.set_next(Some(info.clone()));
                                 *server_str = info.server_name.as_str().to_string();
                                 step.set_next(LoginStep::FinishAddDevice);
                             }
                             Ok(None) => {
-                                register_info.set_next(None);
                                 step.set_next(LoginStep::FinishBootstrap);
                             }
                             Err(err) => {
@@ -141,16 +137,15 @@ impl Widget for Login<'_> {
                             username,
                             server_name,
                         };
-                        let rpc = self.0.client.rpc();
                         let promise = Promise::spawn_async(async move {
-                            flatten_rpc(rpc.register_finish(request).await)
+                            flatten_rpc(get_rpc().register_finish(request).await)
                         });
                         register_finish.start(promise);
                     }
                     if register_finish.is_running() {
                         ui.add(Spinner::new());
                     }
-                    if let Some(result) = register_finish.poll() {
+                    if let Some(result) = register_finish.take() {
                         match result {
                             Ok(()) => {
                                 self.0.state.error_dialog =
@@ -164,7 +159,7 @@ impl Widget for Login<'_> {
                 });
                 }
                 LoginStep::FinishAddDevice => {
-                    let info = (*register_info).clone();
+                    let info = register_start.poll().unwrap().unwrap();
                     let Some(_info) = info else {
                         self.0.state.error_dialog = Some("missing register info".to_string());
                         step.set_next(LoginStep::EnterUsername);
@@ -193,16 +188,15 @@ impl Widget for Login<'_> {
                         };
                         let bundle = nullspace_client::internal::NewDeviceBundle(raw.into());
                         let request = nullspace_client::internal::RegisterFinish::AddDevice { bundle };
-                        let rpc = self.0.client.rpc();
                         let promise = Promise::spawn_async(async move {
-                            flatten_rpc(rpc.register_finish(request).await)
+                            flatten_rpc(get_rpc().register_finish(request).await)
                         });
                         register_finish.start(promise);
                     }
                     if register_finish.is_running() {
                         ui.add(Spinner::new());
                     }
-                    if let Some(result) = register_finish.poll() {
+                    if let Some(result) = register_finish.take() {
                         match result {
                             Ok(()) => {
                                 self.0.state.error_dialog = Some("device added".to_string());
