@@ -154,11 +154,11 @@ fn render_convo(app: &mut NullspaceApp, ui: &mut eframe::egui::Ui, convo_id: Con
     };
 
     if !state.initialized {
-        let mut fetch = |before, after, limit| convo_history(app, &convo_id, before, after, limit);
+        let mut fetch = |before, after, limit| convo_history(&convo_id, before, after, limit);
         state.load_initial(&mut fetch);
         state.last_update_count_seen = update_count;
     } else if update_count > state.last_update_count_seen {
-        let mut fetch = |before, after, limit| convo_history(app, &convo_id, before, after, limit);
+        let mut fetch = |before, after, limit| convo_history(&convo_id, before, after, limit);
         state.refresh_newer(&mut fetch);
         state.last_update_count_seen = update_count;
     }
@@ -196,7 +196,6 @@ fn render_convo(app: &mut NullspaceApp, ui: &mut eframe::egui::Ui, convo_id: Con
 }
 
 fn convo_history(
-    _app: &mut NullspaceApp,
     convo_id: &ConvoId,
     before: Option<i64>,
     after: Option<i64>,
@@ -301,7 +300,7 @@ fn render_messages(
     *stick_to_bottom = at_bottom;
     let at_top = scroll_output.state.offset.y <= 2.0;
     if at_top {
-        let mut fetch = |before, after, limit| convo_history(app, convo_id, before, after, limit);
+        let mut fetch = |before, after, limit| convo_history(convo_id, before, after, limit);
         state.load_older(&mut fetch);
     }
 }
