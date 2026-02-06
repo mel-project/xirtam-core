@@ -1,3 +1,4 @@
+use clap::builder::Str;
 use egui::text::LayoutJob;
 use egui::{Color32, FontFamily, FontId, TextFormat, TextStyle, Ui};
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
@@ -14,19 +15,22 @@ pub fn layout_md_raw(job: &mut LayoutJob, base_format: TextFormat, input: &str) 
     let mut pending_newlines: u8 = 0;
     let mut list_stack: Vec<ListState> = Vec::new();
 
+    defmac::defmac!(flush_newlines => {
+        if pending_newlines > 0 {
+            let fmt = format_stack
+                .last()
+                .cloned()
+                .unwrap_or_else(|| base_format.clone());
+            for _ in 0..pending_newlines {
+                job.append("\n", 0.0, fmt.clone());
+            }
+            pending_newlines = 0;
+        }
+    });
+
     for event in Parser::new(input) {
         match event {
             Event::Text(text) => {
-                if pending_newlines > 0 {
-                    let fmt = format_stack
-                        .last()
-                        .cloned()
-                        .unwrap_or_else(|| base_format.clone());
-                    for _ in 0..pending_newlines {
-                        job.append("\n", 0.0, fmt.clone());
-                    }
-                    pending_newlines = 0;
-                }
                 let fmt = format_stack
                     .last()
                     .cloned()
@@ -34,16 +38,6 @@ pub fn layout_md_raw(job: &mut LayoutJob, base_format: TextFormat, input: &str) 
                 job.append(&text, 0.0, fmt);
             }
             Event::Code(text) => {
-                if pending_newlines > 0 {
-                    let fmt = format_stack
-                        .last()
-                        .cloned()
-                        .unwrap_or_else(|| base_format.clone());
-                    for _ in 0..pending_newlines {
-                        job.append("\n", 0.0, fmt.clone());
-                    }
-                    pending_newlines = 0;
-                }
                 let mut fmt = format_stack
                     .last()
                     .cloned()
@@ -59,18 +53,11 @@ pub fn layout_md_raw(job: &mut LayoutJob, base_format: TextFormat, input: &str) 
                 job.append("\n", 0.0, fmt);
             }
             Event::Start(tag) => match tag {
-                Tag::Paragraph => {}
+                Tag::Paragraph => {
+                    flush_newlines!();
+                }
                 Tag::Heading { level, .. } => {
-                    if pending_newlines > 0 {
-                        let fmt = format_stack
-                            .last()
-                            .cloned()
-                            .unwrap_or_else(|| base_format.clone());
-                        for _ in 0..pending_newlines {
-                            job.append("\n", 0.0, fmt.clone());
-                        }
-                        pending_newlines = 0;
-                    }
+                    flush_newlines!();
                     let mut fmt = format_stack
                         .last()
                         .cloned()
@@ -124,6 +111,7 @@ pub fn layout_md_raw(job: &mut LayoutJob, base_format: TextFormat, input: &str) 
                     format_stack.push(fmt);
                 }
                 Tag::CodeBlock(_) => {
+                    flush_newlines!();
                     let mut fmt = format_stack
                         .last()
                         .cloned()
@@ -132,29 +120,24 @@ pub fn layout_md_raw(job: &mut LayoutJob, base_format: TextFormat, input: &str) 
                     format_stack.push(fmt);
                 }
                 Tag::Item => {
-                    if pending_newlines > 0 {
-                        let fmt = format_stack
-                            .last()
-                            .cloned()
-                            .unwrap_or_else(|| base_format.clone());
-                        for _ in 0..pending_newlines {
-                            job.append("\n", 0.0, fmt.clone());
-                        }
-                        pending_newlines = 0;
-                    }
+                    flush_newlines!();
                     let mut bullet_fmt = base_format.clone();
-                    bullet_fmt.color = Color32::GRAY;
+                    bullet_fmt.color = Color32::DARK_GRAY;
+                    let indentation =
+                        std::iter::repeat_n('\t', list_stack.len() - 1).collect::<String>();
                     let bullet = match list_stack.last_mut() {
                         Some(ListState::Ordered { next }) => {
-                            let label = format!("{next}. ");
+                            let label = format!("{indentation}{next}. ");
                             *next = next.saturating_add(1);
                             label
                         }
-                        _ => "- ".to_string(),
+                        _ => "{indentation}- ".to_string(),
                     };
                     job.append(&bullet, 0.0, bullet_fmt);
                 }
                 Tag::List(start) => {
+                    pending_newlines = 1;
+                    flush_newlines!();
                     match start {
                         Some(start) => list_stack.push(ListState::Ordered { next: start }),
                         None => list_stack.push(ListState::Unordered),
@@ -171,15 +154,14 @@ pub fn layout_md_raw(job: &mut LayoutJob, base_format: TextFormat, input: &str) 
                     pending_newlines = 1;
                 }
                 TagEnd::Heading(_) => {
-                    if format_stack.len() > 1 {
-                        format_stack.pop();
-                    }
+                    format_stack.pop();
                     pending_newlines = 1;
                 }
                 TagEnd::Emphasis | TagEnd::Strong | TagEnd::CodeBlock => {
                     format_stack.pop();
                 }
                 TagEnd::List(_) => {
+                    pending_newlines = 1;
                     list_stack.pop();
                 }
                 TagEnd::BlockQuote | TagEnd::Link => {}
