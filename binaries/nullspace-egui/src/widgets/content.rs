@@ -56,7 +56,8 @@ impl Widget for Content<'_> {
                             if ui.link("Accept").clicked() {
                                 let invite_id = *invite_id;
                                 tokio::spawn(async move {
-                                    let _ = flatten_rpc(get_rpc().group_accept_invite(invite_id).await);
+                                    let _ =
+                                        flatten_rpc(get_rpc().group_accept_invite(invite_id).await);
                                 });
                             }
                         });
@@ -142,11 +143,7 @@ impl Widget for AttachmentContent<'_> {
                 let box_width = ui.available_width().min(500.0);
                 let max_box = egui::vec2(ui.available_width(), box_width * 0.6);
 
-                ui.add(SmoothImage {
-                    filename: path.as_path(),
-                    max_size: max_box,
-                    corner_radius: egui::CornerRadius::ZERO,
-                });
+                ui.add(SmoothImage::new(path.as_path()).fit_to_size(max_box));
             } else if !*image_downloading {
                 if let Some(limit) = self.app.state.prefs.max_auto_image_download_bytes
                     && self.size <= limit

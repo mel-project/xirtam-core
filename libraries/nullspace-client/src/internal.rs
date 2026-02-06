@@ -98,11 +98,6 @@ pub trait InternalProtocol {
         save_to: PathBuf,
     ) -> Result<(), InternalRpcError>;
 
-    async fn user_profile(
-        &self,
-        username: UserName,
-    ) -> Result<Option<UserProfile>, InternalRpcError>;
-
     async fn own_username(&self) -> Result<UserName, InternalRpcError>;
 
     async fn own_profile_set(
@@ -479,11 +474,15 @@ impl InternalProtocol for InternalImpl {
             .map_err(map_anyhow_err)
     }
 
-    async fn user_profile(
+    async fn user_details(
         &self,
         username: UserName,
-    ) -> Result<Option<UserProfile>, InternalRpcError> {
+    ) -> Result<UserDetails, InternalRpcError> {
         let db = self.ctx.get(DATABASE);
+        if !identity_exists(db).await.map_err(internal_err)? {
+            return Err(InternalRpcError::NotReady);
+        }
+        let identity = Identity::load(db).await.map_err(internal_err)?;
         let profile = get_profile(&self.ctx, &username)
             .await
             .map_err(map_anyhow_err)?;
@@ -495,19 +494,6 @@ impl InternalProtocol for InternalImpl {
                 .await
                 .map_err(internal_err)?;
         }
-        Ok(profile)
-    }
-
-    async fn user_details(
-        &self,
-        username: UserName,
-    ) -> Result<UserDetails, InternalRpcError> {
-        let db = self.ctx.get(DATABASE);
-        if !identity_exists(db).await.map_err(internal_err)? {
-            return Err(InternalRpcError::NotReady);
-        }
-        let identity = Identity::load(db).await.map_err(internal_err)?;
-        let profile = self.user_profile(username.clone()).await?;
         let user_info = get_user_info(&self.ctx, &username)
             .await
             .map_err(map_anyhow_err)?;
@@ -897,19 +883,30 @@ async fn last_dm_message_summary(
     let convo_id = ConvoId::Direct {
         peer: other_username.clone(),
     };
-    let messages = convo_history(db, convo_id, None, None, 1).await?;
-    let Some(message) = messages.last() else {
+    let convo_type = convo_id.convo_type();
+    let counterparty = convo_id.counterparty();
+    let received_at = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT m.received_at \
+         FROM convo_messages m \
+         JOIN convos c ON m.convo_id = c.id \
+         WHERE c.convo_type = ? AND c.convo_counterparty = ? AND m.sender_username != ? \
+         ORDER BY m.id DESC \
+         LIMIT 1",
+    )
+    .bind(convo_type)
+    .bind(counterparty)
+    .bind(local_username.as_str())
+    .fetch_optional(db)
+    .await?
+    .flatten();
+
+    let Some(received_at) = received_at else {
         return Ok(None);
     };
-    let direction = if message.sender == *local_username {
-        MessageDirection::Outgoing
-    } else {
-        MessageDirection::Incoming
-    };
     Ok(Some(UserLastMessageSummary {
-        received_at: message.received_at,
-        direction,
-        preview: message_preview(&message.body),
+        received_at: Some(NanoTimestamp(received_at as u64)),
+        direction: MessageDirection::Incoming,
+        preview: String::new(),
     }))
 }
 

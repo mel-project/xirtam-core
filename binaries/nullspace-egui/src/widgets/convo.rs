@@ -24,7 +24,7 @@ use crate::widgets::user_info::UserInfo;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-const INITIAL_LIMIT: u16 = 10;
+const INITIAL_LIMIT: u16 = 100;
 const PAGE_LIMIT: u16 = 10;
 
 pub struct Convo<'a>(pub &'a mut NullspaceApp, pub ConvoId);
@@ -220,20 +220,11 @@ fn render_header(
             let display = app.state.profile_loader.label_for(peer).display;
             ui.horizontal_centered(|ui| {
                 let size = 24.0;
-                if let Some(attachment) = view.avatar.as_ref() {
-                    ui.add(Avatar {
-                        sender: peer,
-                        attachment,
-                        size,
-                    });
-                } else {
-                    let (rect, _) = ui.allocate_exact_size(
-                        eframe::egui::vec2(size, size),
-                        eframe::egui::Sense::hover(),
-                    );
-                    ui.painter()
-                        .rect_filled(rect, 0.0, eframe::egui::Color32::LIGHT_GRAY);
-                }
+                ui.add(Avatar {
+                    sender: peer.clone(),
+                    attachment: view.and_then(|details| details.avatar),
+                    size,
+                });
                 ui.heading(display);
                 if ui.button("Info").clicked() {
                     *user_info_target = Some(peer.clone());
@@ -272,10 +263,9 @@ fn render_messages(
             sender_labels.insert(item.sender.clone(), label);
         }
     }
-    let mut stick_to_bottom: Var<bool> = ui.use_state(|| true, (key.clone(), "stick")).into_var();
     let scroll_output = ScrollArea::vertical()
         .id_salt("scroll")
-        .stick_to_bottom(*stick_to_bottom)
+        .stick_to_bottom(true)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let mut last_date: Option<NaiveDate> = None;
@@ -296,8 +286,7 @@ fn render_messages(
             }
         });
     let max_offset = (scroll_output.content_size.y - scroll_output.inner_rect.height()).max(0.0);
-    let at_bottom = max_offset - scroll_output.state.offset.y <= 2.0;
-    *stick_to_bottom = at_bottom;
+
     let at_top = scroll_output.state.offset.y <= 2.0;
     if at_top {
         let mut fetch = |before, after, limit| convo_history(convo_id, before, after, limit);

@@ -23,9 +23,45 @@ static IMAGE_CACHE: LazyLock<Cache<CacheKey, eframe::egui::TextureHandle>> = Laz
 });
 
 pub struct SmoothImage<'a> {
-    pub filename: &'a Path,
-    pub max_size: eframe::egui::Vec2,
-    pub corner_radius: eframe::egui::CornerRadius,
+    filename: &'a Path,
+    max_size: eframe::egui::Vec2,
+    corner_radius: eframe::egui::CornerRadius,
+    preserve_aspect_ratio: bool,
+    sense: eframe::egui::Sense,
+}
+
+impl<'a> SmoothImage<'a> {
+    pub fn new(filename: &'a Path) -> Self {
+        Self {
+            filename,
+            max_size: eframe::egui::Vec2::splat(100.0),
+            corner_radius: eframe::egui::CornerRadius::ZERO,
+            preserve_aspect_ratio: true,
+            sense: eframe::egui::Sense::empty(),
+        }
+    }
+
+    pub fn fit_to_size(self, max_size: eframe::egui::Vec2) -> Self {
+        Self { max_size, ..self }
+    }
+
+    pub fn corner_radius(self, corner_radius: eframe::egui::CornerRadius) -> Self {
+        Self {
+            corner_radius,
+            ..self
+        }
+    }
+
+    pub fn preserve_aspect_ratio(self, preserve_aspect_ratio: bool) -> Self {
+        Self {
+            preserve_aspect_ratio,
+            ..self
+        }
+    }
+
+    pub fn sense(self, sense: eframe::egui::Sense) -> Self {
+        Self { sense, ..self }
+    }
 }
 
 impl Widget for SmoothImage<'_> {
@@ -39,7 +75,7 @@ impl Widget for SmoothImage<'_> {
 
         if let Some(texture) = IMAGE_CACHE.get(&cache_key) {
             let ui_size = texture_size_points(pixels_per_point, texture.size());
-            let (rect, response) = ui.allocate_exact_size(ui_size, eframe::egui::Sense::hover());
+            let (rect, response) = ui.allocate_exact_size(ui_size, self.sense);
             eframe::egui::Image::from_texture(&texture)
                 .corner_radius(self.corner_radius)
                 .texture_options(eframe::egui::TextureOptions::NEAREST)
@@ -60,7 +96,11 @@ impl Widget for SmoothImage<'_> {
             let spawned = Promise::spawn_thread("smooth_image", move || {
                 let bytes = std::fs::read(filename).map_err(|e| e.to_string())?;
                 let decoded = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
-                let texel_size = target_texel_size(max_texel_box, decoded.dimensions());
+                let texel_size = target_texel_size(
+                    max_texel_box,
+                    decoded.dimensions(),
+                    self.preserve_aspect_ratio,
+                );
                 let texture = make_texture(&ctx, decoded, texel_size, id)?;
                 IMAGE_CACHE.insert(cache_key, texture.clone());
                 ctx.request_repaint();
@@ -72,9 +112,8 @@ impl Widget for SmoothImage<'_> {
         let texture = match promise.poll() {
             Some(Ok(texture)) => Some(texture),
             Some(Err(err)) => {
-                let ui_size = fallback_ui_size(self.max_size);
-                let (rect, response) =
-                    ui.allocate_exact_size(ui_size, eframe::egui::Sense::hover());
+                let ui_size = fallback_ui_size(self.max_size, self.preserve_aspect_ratio);
+                let (rect, response) = ui.allocate_exact_size(ui_size, self.sense);
                 paint_error(ui, rect, &err);
                 return response;
             }
@@ -84,8 +123,8 @@ impl Widget for SmoothImage<'_> {
         let ui_size = texture
             .as_ref()
             .map(|t| texture_size_points(pixels_per_point, t.size()))
-            .unwrap_or_else(|| fallback_ui_size(self.max_size));
-        let (rect, response) = ui.allocate_exact_size(ui_size, eframe::egui::Sense::hover());
+            .unwrap_or_else(|| fallback_ui_size(self.max_size, self.preserve_aspect_ratio));
+        let (rect, response) = ui.allocate_exact_size(ui_size, self.sense);
 
         if let Some(texture) = texture {
             eframe::egui::Image::from_texture(&texture)
@@ -113,21 +152,36 @@ fn max_texel_box(pixels_per_point: f32, max_size_points: eframe::egui::Vec2) -> 
     [w, h]
 }
 
-fn fallback_ui_size(max_size: eframe::egui::Vec2) -> eframe::egui::Vec2 {
-    scale_to_fit(eframe::egui::Vec2::splat(24.0), max_size)
+fn fallback_ui_size(
+    max_size: eframe::egui::Vec2,
+    preserve_aspect_ratio: bool,
+) -> eframe::egui::Vec2 {
+    if preserve_aspect_ratio {
+        scale_to_fit(eframe::egui::Vec2::splat(24.0), max_size)
+    } else {
+        max_size
+    }
 }
 
-fn target_texel_size(max_texel_box: [u32; 2], decoded_dimensions: (u32, u32)) -> [u32; 2] {
+fn target_texel_size(
+    max_texel_box: [u32; 2],
+    decoded_dimensions: (u32, u32),
+    preserve_aspect_ratio: bool,
+) -> [u32; 2] {
     let (src_w, src_h) = decoded_dimensions;
     if src_w == 0 || src_h == 0 {
         return [1, 1];
     }
-    let src = eframe::egui::Vec2::new(src_w as f32, src_h as f32);
-    let available = eframe::egui::Vec2::new(max_texel_box[0] as f32, max_texel_box[1] as f32);
-    let scaled = scale_to_fit(src, available);
-    let w = scaled.x.round().max(1.0).min(max_texel_box[0] as f32) as u32;
-    let h = scaled.y.round().max(1.0).min(max_texel_box[1] as f32) as u32;
-    [w, h]
+    if preserve_aspect_ratio {
+        let src = eframe::egui::Vec2::new(src_w as f32, src_h as f32);
+        let available = eframe::egui::Vec2::new(max_texel_box[0] as f32, max_texel_box[1] as f32);
+        let scaled = scale_to_fit(src, available);
+        let w = scaled.x.round().max(1.0).min(max_texel_box[0] as f32) as u32;
+        let h = scaled.y.round().max(1.0).min(max_texel_box[1] as f32) as u32;
+        [w, h]
+    } else {
+        [max_texel_box[0].max(1), max_texel_box[1].max(1)]
+    }
 }
 
 fn scale_to_fit(

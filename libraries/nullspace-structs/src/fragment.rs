@@ -11,7 +11,7 @@ use smol_str::SmolStr;
 use crate::event::EventPayload;
 
 /// An attachment, which assigns a filename and mime to a series of encrypted fragments. This is something that can be sent in messages to represent attachments, for example.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Attachment {
     pub filename: SmolStr,
     pub mime: SmolStr,

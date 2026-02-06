@@ -1,5 +1,5 @@
 use eframe::egui::{Response, ViewportCommand, Widget};
-use egui::{Align, Button, Layout};
+use egui::{Align, Button, Layout, vec2};
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
 use nullspace_client::internal::{ConvoId, ConvoSummary};
@@ -10,9 +10,10 @@ use crate::rpc::get_rpc;
 use crate::widgets::add_contact::AddContact;
 use crate::widgets::add_device::AddDevice;
 use crate::widgets::add_group::AddGroup;
+use crate::widgets::avatar::Avatar;
 use crate::widgets::convo::Convo;
-use crate::widgets::profile::Profile;
 use crate::widgets::preferences::Preferences;
+use crate::widgets::profile::Profile;
 
 pub struct SteadyState<'a>(pub &'a mut NullspaceApp);
 
@@ -31,31 +32,56 @@ impl Widget for SteadyState<'_> {
             },
             self.0.state.msg_updates,
         );
+        let own_username = ui.use_memo(
+            || {
+                let result = pollster::block_on(get_rpc().own_username());
+                flatten_rpc(result)
+            },
+            (),
+        );
 
         let frame = eframe::egui::Frame::default().inner_margin(eframe::egui::Margin::same(8));
-        eframe::egui::TopBottomPanel::top("steady_menu").show_inside(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Preferences").clicked() {
-                        *show_preferences = true;
-                        ui.close();
-                    }
-                    if ui.button("Profile…").clicked() {
-                        *show_profile = true;
-                        ui.close();
-                    }
-                    if ui.button("Add device").clicked() {
-                        *show_add_device = true;
-                        ui.close();
-                    }
-                    if ui.button("Exit").clicked() {
-                        ui.ctx().send_viewport_cmd(ViewportCommand::Close);
-                        ui.close();
-                    }
+        eframe::egui::TopBottomPanel::top("steady_menu")
+            .exact_height(26.0)
+            .show_inside(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Preferences").clicked() {
+                            *show_preferences = true;
+                            ui.close();
+                        }
+                        if ui.button("Add device").clicked() {
+                            *show_add_device = true;
+                            ui.close();
+                        }
+                        if ui.button("Exit").clicked() {
+                            ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+                            ui.close();
+                        }
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let size = 20.0;
+                        if let Ok(username) = &own_username {
+                            let profile_view = self.0.state.profile_loader.view(username);
+                            let display = self.0.state.profile_loader.label_for(username);
+                            if ui.button(display.display).clicked()
+                                | ui.add_sized(
+                                    vec2(size, size),
+                                    Avatar {
+                                        sender: username.clone(),
+                                        attachment: profile_view.and_then(|details| details.avatar),
+                                        size,
+                                    },
+                                )
+                                .clicked()
+                            {
+                                *show_profile = true;
+                            }
+                        }
+                    });
                 });
+                ui.add_space(4.0);
             });
-            ui.add_space(4.0);
-        });
         eframe::egui::SidePanel::left("steady_left")
             .resizable(false)
             .exact_width(200.0)
@@ -123,11 +149,7 @@ impl<'a> SteadyState<'a> {
                         let selection = convo.convo_id.clone();
                         let label = match &convo.convo_id {
                             ConvoId::Direct { peer } => {
-                                self.0
-                                    .state
-                                    .profile_loader
-                                    .label_for(peer)
-                                    .display
+                                self.0.state.profile_loader.label_for(peer).display
                             }
                             ConvoId::Group { group_id } => {
                                 format!("Group {}", short_group_id(group_id))

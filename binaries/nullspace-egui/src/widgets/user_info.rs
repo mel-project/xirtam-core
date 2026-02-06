@@ -85,23 +85,11 @@ impl Widget for UserInfo {
                             })
                             .ui(|ui| {
                                 let size = 48.0;
-                                if let Some(attachment) = details.avatar.as_ref() {
-                                    ui.add(Avatar {
-                                        sender: &details.username,
-                                        attachment,
-                                        size,
-                                    });
-                                } else {
-                                    let (rect, _) = ui.allocate_exact_size(
-                                        eframe::egui::vec2(size, size),
-                                        eframe::egui::Sense::hover(),
-                                    );
-                                    ui.painter().rect_filled(
-                                        rect,
-                                        0.0,
-                                        eframe::egui::Color32::LIGHT_GRAY,
-                                    );
-                                }
+                                ui.add(Avatar {
+                                    sender: details.username.clone(),
+                                    attachment: details.avatar.clone(),
+                                    size,
+                                });
                             });
 
                             // Name section (grows to fill space)
@@ -165,25 +153,8 @@ impl Widget for UserInfo {
                             // Last message row
                             render_info_row(tui, "Last message", |tui| {
                                 if let Some(last) = details.last_dm_message.as_ref() {
-                                    tui.style(Style {
-                                        flex_direction: FlexDirection::Column,
-                                        gap: TaffySize::length(4.),
-                                        ..Default::default()
-                                    })
-                                    .wrap_mode(TextWrapMode::Extend)
-                                    .add(|tui| {
-                                        let direction = match last.direction {
-                                            MessageDirection::Incoming => "Incoming",
-                                            MessageDirection::Outgoing => "Outgoing",
-                                        };
-                                        let time = format_timestamp(last.received_at);
-                                        tui.label(&format!("{direction} · {time}"));
-                                        tui.ui(|ui| {
-                                            ui.label(
-                                                RichText::new(&last.preview).color(Color32::GRAY),
-                                            );
-                                        });
-                                    });
+                                    let time = format_timestamp(last.received_at);
+                                    tui.wrap_mode(TextWrapMode::Extend).label(time);
                                 } else {
                                     tui.wrap_mode(TextWrapMode::Extend).label("None");
                                 }

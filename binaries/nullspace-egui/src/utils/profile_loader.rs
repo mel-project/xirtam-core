@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 
 use poll_promise::Promise;
 
-use nullspace_structs::fragment::Attachment;
-use nullspace_structs::profile::UserProfile;
+use nullspace_client::internal::UserDetails;
 use nullspace_structs::username::UserName;
 
 use crate::promises::flatten_rpc;
@@ -22,19 +21,12 @@ pub struct ProfileLoader {
 
 #[derive(Default)]
 struct ProfileEntry {
-    last_good: Option<UserProfile>,
-    inflight: Option<Promise<Result<Option<UserProfile>, String>>>,
+    last_good: Option<UserDetails>,
+    inflight: Option<Promise<Result<UserDetails, String>>>,
     last_error: Option<String>,
     retry_after: Option<Instant>,
     missing: bool,
     force_refresh: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct ProfileView {
-    pub display_name: Option<String>,
-    pub avatar: Option<Attachment>,
-    pub loaded: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -43,7 +35,7 @@ pub struct DisplayLabel {
 }
 
 impl ProfileLoader {
-    pub fn view(&mut self, username: &UserName) -> ProfileView {
+    pub fn view(&mut self, username: &UserName) -> Option<UserDetails> {
         let entry = match self.entries.entry(username.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
@@ -60,8 +52,8 @@ impl ProfileLoader {
             match promise.try_take() {
                 Ok(result) => match result {
                     Ok(profile) => {
-                        entry.missing = profile.is_none();
-                        entry.last_good = profile;
+                        entry.missing = false;
+                        entry.last_good = Some(profile);
                         entry.last_error = None;
                         entry.retry_after = None;
                         let next_display = entry
@@ -96,23 +88,12 @@ impl ProfileLoader {
             entry.force_refresh = false;
             let username = username.clone();
             let promise = Promise::spawn_async(async move {
-                flatten_rpc(get_rpc().user_profile(username).await)
+                flatten_rpc(get_rpc().user_details(username).await)
             });
             entry.inflight = Some(promise);
         }
 
-        let loaded = entry.last_good.is_some() || entry.missing;
-        ProfileView {
-            display_name: entry
-                .last_good
-                .as_ref()
-                .and_then(|profile| profile.display_name.clone()),
-            avatar: entry
-                .last_good
-                .as_ref()
-                .and_then(|profile| profile.avatar.clone()),
-            loaded,
-        }
+        entry.last_good.clone()
     }
 
     fn refresh_label_index(&mut self) {
@@ -140,11 +121,18 @@ impl ProfileLoader {
         let view = self.view(username);
         self.refresh_label_index();
 
-        let base = view
-            .display_name
-            .clone()
-            .unwrap_or_else(|| username.as_str().to_string());
-        let display = if view.display_name.is_some()
+        let (base, has_display) = match view.as_ref() {
+            Some(details) => {
+                let display_name = details.display_name.clone();
+                let base = display_name
+                    .clone()
+                    .unwrap_or_else(|| username.as_str().to_string());
+                let has_display = display_name.is_some();
+                (base, has_display)
+            }
+            None => (username.as_str().to_string(), false),
+        };
+        let display = if has_display
             && self.label_counts.get(&base).copied().unwrap_or(0) > 1
         {
             format!("{base} ({})", username.as_str())

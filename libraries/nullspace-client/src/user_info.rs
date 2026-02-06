@@ -73,6 +73,7 @@ pub async fn get_user_info(
         cached_device_chains = chains;
         cached_medium_pks = merge_monotonic_medium_pks(username, cached_medium_pks, medium_pks);
         store_cached_user_info(db, username, &cached_device_chains, &cached_medium_pks).await?;
+        tracing::debug!(username=%username, elapsed=debug(start.elapsed()), "refreshed peer info");
     }
 
     let mut device_chains = BTreeMap::new();
@@ -99,7 +100,6 @@ pub async fn get_user_info(
         ));
     }
 
-    tracing::debug!(username=%username, elapsed=debug(start.elapsed()), "refreshed peer info");
     Ok(Arc::new(UserInfo {
         username: username.clone(),
         server,

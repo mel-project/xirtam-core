@@ -89,10 +89,10 @@ impl Widget for ProfileInner<'_> {
 
         let profile_view = self.app.state.profile_loader.view(&username);
 
-        if !profile_view.loaded {
+        let Some(profile_view) = profile_view else {
             ui.label("Loading...");
             return ui.response();
-        }
+        };
 
         if !*initialized {
             *display_name_input = profile_view.display_name.clone().unwrap_or_default();
@@ -147,10 +147,12 @@ impl Widget for ProfileInner<'_> {
                             let size = 64.0;
                             match &*avatar_choice {
                                 AvatarChoice::Set(attachment) => {
-                                    ui.add(Avatar {
-                                        sender: &username,
-                                        attachment,
-                                        size,
+                                    ui.push_id(attachment, |ui| {
+                                        ui.add(Avatar {
+                                            sender: username.clone(),
+                                            attachment: Some(attachment.clone()),
+                                            size,
+                                        })
                                     });
                                 }
                                 AvatarChoice::Clear => {
@@ -158,10 +160,12 @@ impl Widget for ProfileInner<'_> {
                                 }
                                 AvatarChoice::Keep => {
                                     if let Some(attachment) = profile_view.avatar.as_ref() {
-                                        ui.add(Avatar {
-                                            sender: &username,
-                                            attachment,
-                                            size,
+                                        ui.push_id(attachment, |ui| {
+                                            ui.add(Avatar {
+                                                sender: username.clone(),
+                                                attachment: Some(attachment.clone()),
+                                                size,
+                                            })
                                         });
                                     } else {
                                         paint_placeholder(ui, size);
@@ -267,7 +271,6 @@ impl Widget for ProfileInner<'_> {
                     if let Some(result) = save_promise.take() {
                         match result {
                             Ok(()) => {
-                                self.app.state.error_dialog = Some("Profile updated".to_string());
                                 self.app.state.profile_loader.invalidate(&username);
                                 *avatar_choice = AvatarChoice::Keep;
                             }
