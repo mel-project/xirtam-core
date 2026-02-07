@@ -18,9 +18,10 @@ use crate::promises::flatten_rpc;
 use crate::rpc::get_rpc;
 use crate::screens::group_roster::GroupRoster;
 use crate::screens::user_info::UserInfo;
+use crate::utils::prefs::ConvoRowStyle;
 use crate::utils::speed::speed_fmt;
 use crate::widgets::avatar::Avatar;
-use crate::widgets::content::Content;
+use crate::widgets::convo_row::ConvoRow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -252,6 +253,13 @@ fn render_messages(
     convo_id: &ConvoId,
     state: &mut Var<ConvoState>,
 ) {
+    let own_username = ui.use_memo(
+        || flatten_rpc(get_rpc().own_username().block_on()),
+        (),
+    );
+    let own_username = own_username.as_ref().ok();
+    let is_group = matches!(convo_id, ConvoId::Group { .. });
+    let style: ConvoRowStyle = app.state.prefs.convo_row_style;
     let scroll_output = ScrollArea::vertical()
         .id_salt("scroll")
         .stick_to_bottom(true)
@@ -268,7 +276,15 @@ fn render_messages(
                     last_date = Some(date);
                 }
                 let label = app.state.profile_loader.label_for(&item.sender);
-                render_row(ui, item, app, label);
+                let is_outgoing = own_username.is_some_and(|username| *username == item.sender);
+                ui.add(ConvoRow {
+                    app,
+                    message: item,
+                    sender_label: label,
+                    style,
+                    is_outgoing,
+                    show_sender: is_group && !is_outgoing,
+                });
             }
         });
 
@@ -422,39 +438,6 @@ fn render_roster(
             user_info: user_info_target,
         });
     }
-}
-
-fn render_row(
-    ui: &mut eframe::egui::Ui,
-    item: &ConvoMessage,
-    app: &mut NullspaceApp,
-    sender_label: String,
-) {
-    let timestamp = format_timestamp(item.received_at);
-    ui.horizontal_top(|ui| {
-        ui.label(RichText::new(format!("[{timestamp}]")).color(Color32::GRAY));
-        ui.push_id(item.received_at, |ui| {
-            ui.add(Content {
-                app,
-                message: item,
-                sender_label,
-            })
-        });
-    });
-    ui.add_space(4.0);
-}
-
-fn format_timestamp(ts: Option<NanoTimestamp>) -> String {
-    let Some(ts) = ts else {
-        return "--:--".to_string();
-    };
-    let secs = (ts.0 / 1_000_000_000) as i64;
-    let nsec = (ts.0 % 1_000_000_000) as u32;
-    let Some(dt) = DateTime::from_timestamp(secs, nsec) else {
-        return "--:--".to_string();
-    };
-    let local = dt.with_timezone(&Local);
-    local.format("%H:%M").to_string()
 }
 
 fn date_from_timestamp(ts: Option<NanoTimestamp>) -> Option<NaiveDate> {

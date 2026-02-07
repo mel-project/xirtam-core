@@ -61,6 +61,29 @@ A fragment is one of these structured values:
 
 Fragment IDs are computed from the BCS encoding of these structured values. Implementations MUST NOT compute fragment IDs by hashing JSON text or any other transport-level encoding.
 
+### BCS encoding of a fragment (tagged variant)
+
+For hashing, the fragment value is encoded as a BCS **externally tagged variant**:
+
+1) Encode the variant tag as ULEB128 `u32`.
+2) Encode that variant's payload immediately after the tag.
+
+Canonical tags for this protocol are:
+
+- `0` = `node`
+- `1` = `leaf`
+
+So the hashed value is:
+
+- `node(children)` -> `BCS([0, children])`
+- `leaf(nonce, data)` -> `BCS([1, nonce, data])`
+
+where:
+
+- `children` is a list of `[hash, size]`
+- `nonce` is 24 bytes
+- `data` is bytes
+
 ### Fragment node
 
 A node contains a list of `[hash, size]` child pointers. The `children` list is interpreted the same way as the root’s `children`.
@@ -113,7 +136,7 @@ send_attachment(file_bytes, filename, file_mime):
         leaf.data = aead_encrypt(content_key, nonce, plaintext_chunk)
         upload leaf
 
-    build and upload internal nodes (optional)
+    build and upload internal nodes
     root = { filename, mime: file_mime, children: top_level_children, content_key }
     send event with (mime = application/vnd.nullspace.v1.attachment, body = json_encode(root))
 ```

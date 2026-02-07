@@ -2,7 +2,9 @@
 
 The Signal Protocol (formerly known as Axolotl) and variations on it is the de facto standard for end-to-end encrypted messaging. Software using it includes Signal, WhatsApp, Facebook Messenger, Matrix (through its Olm and Megolm variations), Google Messages...
 
-Nullspace intentionally uses an E2EE scheme *very different from Signal Protocol*. We systematically avoid the "key ratcheting" design of Signal Protocol, trading off certain security features that make sense only in certain edge cases, and return get a simpler protocol, easier implementation, and *much* better performance in scenarios such as extremely large groups.
+But Nullspace intentionally uses an E2EE scheme *very different from Signal Protocol*. We systematically avoid the "key ratcheting" design of Signal Protocol, trading off certain security features that make sense only in certain edge cases, and return get a simpler protocol, easier implementation, and *much* better performance in scenarios such as extremely large groups.
+
+This is to achieve a key design goal of Nullspace --- **making encrypted chat UX just as good as traditional chat UX**.
 
 ## Nullspace's "contrarian" cryptography
 
@@ -12,16 +14,23 @@ The two major differences in Nullspace's E2EE security model and that of Signal 
 
 ### On deniability
 
-Deniability is obviously a desirable feature. All else being equal, a protocol with deniability is more secure than a protocol without.
+There is some level of debate on this (when has cryptographic signatures on chat transcripts ever made a difference in court?), but deniability is probably a desirable feature. All else being equal, a protocol with deniability is probably more secure than a protocol without, in the sense that deniability protects more things users care about than non-repudiation in most situations users find themselves.
 
-The problem is that all else is *not* equal. Deniability complicates protocol design and is effectively impossible for large groups. Each message's authenticity must be verifiable by an unbounded number of counterparties, so triple-DH-style implicit authentication isn't going to work. (Even MLS isn't an exception to this rule; deniability there requires O(n^2) communication patterns over deniable 1-to-1 channels to distribute per-group signing keys on joining/leaving, which largely defeats the purpose of the complex machinery required to make ratcheting scale). 
+The problem is that all else is not equal. We must pay very large costs to achieve deniability, costs that prevent a chat system from achieving the same feature set and performance as a non-e2ee system.
 
-This means that almost every Varying deniability between groups and DMs, or small groups and large groups, is also unintuitive to users. Users will be surprised if group chat transcripts can't be faked, but people can fake chat transcripts in DMs. From a UX standpoint, "can I ask for proof for this scandalous Nullspace convo going viral" should have a uniform answer either way.
+First of all, *deniability complicates protocol design* and is effectively impossible for large groups. Each message's authenticity must be verifiable by an unbounded number of counterparties, so triple-DH-style implicit authentication isn't going to work. Trying to sorta scale deniability to groups means more complex cryptographic machinery, like Signal's Sender Keys system, which requires every user joining a group to contact every other group member to distribute a per-group signing key over the 1-on-1 deniable channel. This still doesn't really work for large groups --- in practice Signal limits groups to 1000 members.
 
-Finally, deniability also disproportionately impacts *more user-empowering* forms of non-repudiation while minimally affecting problematic forms. Here are some scenarios where 
+(And even then, and it still doesn't get us the same amount of deniability that 1-on-1 Signal chats have. This is a long story, but it's essentially because we're still binding messages to the same group-level pseudonym in a non-repudiable fashion. MLS, the complex standard-track protocol whose entire ambition is to scale Signal Protocol features to huge groups, also gives up on scaling deniability. Why so is also somewhat of a long story, but I suspect that deniability is at a really fundamental level impossible to scale to large groups.)
 
-Powerful third parties have really good ways of getting proof that somebody said something, like subpoenaing server logs and confiscating devices, that don't require cryptographic non-repudiation. Deniable systems also don't prevent providers from offering effectively non-deniable "abuse report" features, i.e. users snitching each other out to the server (a unique server-side ID of the message and a copy of the unique symmetric key used to encrypt that message is enough to prove to the server that somebody said something). On the other hand, users can no longer trust, say, forwarded messages purporting to be from other users; if preventing forging "message quotes" is done by server-side logic instead, then it's even worse, since malicious servers can easily fool users who are accustomed to trusting the "original author" field displayed in the UI.
+So the best we can do is have DMs be deniable, but groups be on a spectrum from not-deniable to sorta-deniable. But that brings us to the second point: *varying deniability between groups and DMs is really bad UX*. Users will be surprised if group chat transcripts can't be faked, but people can fake chat transcripts in DMs. "Can I ask for cryptographic proof for this scandalous Nullspace convo going viral" should have a uniform answer either way.
 
+Finally, in practice, deniability minimally affects the most problematic forms of non-repudiation that it defends against in theory, while actually disabling some some *more user-empowering* forms of non-repudiation. 
+
+Powerful third parties have really good ways of getting proof that somebody said something, like subpoenaing server logs and confiscating devices, that don't require cryptographic non-repudiation. Put it another way, deniable systems don't prevent providers from offering non-repudiable "abuse report" features, i.e. users snitching each other out to the server (a unique server-side ID of the message and a copy of the unique symmetric key used to encrypt that message is enough to prove to the server that somebody said something). 
+
+On the other hand, deniability means that we cannot offer certain features securely, like quote-forwarding messages purporting to be from other users. If forging "message quotes" is done by server-side logic or some other non-cryptogrpahic mechanism, then it's even worse, since malicious servers can easily fool users who are accustomed to trusting the "original author" field displayed in the UI.
+
+### On compromise blast radii
 
 - **We use periodic rekeying rather than ratcheting**. Yes, this does mean we give up message-level FS/PCS.
     - Real-world compromise blast radii are *far* bigger than compromising a single key. There just isn't a realistic scenario where 1. all the keys on a device get compromised 2. no previous message history gets compromised 3. the attacker can't impersonate the user to download more messages, participate in further ratcheting, etc, at least for a small amount of time. 

@@ -1,6 +1,9 @@
 use eframe::egui::{ComboBox, Grid, Response, Widget, Window};
 
-use crate::{NullspaceApp, utils::prefs::{IMAGE_AUTO_DOWNLOAD_OPTIONS, label_for_auto_image_limit}};
+use crate::{
+    NullspaceApp,
+    utils::prefs::{ConvoRowStyle, IMAGE_AUTO_DOWNLOAD_OPTIONS, label_for_auto_image_limit},
+};
 
 pub struct Preferences<'a> {
     pub app: &'a mut NullspaceApp,
@@ -48,6 +51,23 @@ impl Widget for Preferences<'_> {
                                             *label,
                                         );
                                     }
+                                });
+                            ui.end_row();
+
+                            ui.label("Message style");
+                            ComboBox::from_id_salt("message_style")
+                                .selected_text(self.app.state.prefs.convo_row_style.label())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.app.state.prefs.convo_row_style,
+                                        ConvoRowStyle::Text,
+                                        ConvoRowStyle::Text.label(),
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.app.state.prefs.convo_row_style,
+                                        ConvoRowStyle::Bubbles,
+                                        ConvoRowStyle::Bubbles.label(),
+                                    );
                                 });
                             ui.end_row();
                         });
