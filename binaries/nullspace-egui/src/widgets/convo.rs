@@ -494,7 +494,7 @@ fn read_clipboard_image() -> Result<PasteImage, String> {
     let mut clipboard = Clipboard::new().map_err(|err| format!("clipboard error: {err}"))?;
     let image = clipboard
         .get_image()
-        .map_err(|err| format!("clipboard has no image ({err})"))?;
+        .map_err(|_| format!("clipboard has no image"))?;
     let width = image.width;
     let height = image.height;
     let bytes = image.bytes.into_owned();

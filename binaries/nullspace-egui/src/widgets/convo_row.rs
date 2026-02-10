@@ -2,10 +2,7 @@ use core::f32;
 use std::path::PathBuf;
 
 use eframe::egui::{Response, RichText, Widget};
-use egui::{
-    Color32, CornerRadius, ProgressBar, TextFormat, TextStyle,
-    text::LayoutJob,
-};
+use egui::{Color32, CornerRadius, ProgressBar, TextFormat, TextStyle, text::LayoutJob};
 use egui_hooks::UseHookExt;
 use nullspace_client::internal::{ConvoMessage, MessageContent};
 use nullspace_crypt::hash::Hash;
@@ -206,7 +203,7 @@ impl Widget for AttachmentContent<'_> {
                 ui.add(
                     SmoothImage::new(path.as_path())
                         .fit_to_size(max_box)
-                        .corner_radius(CornerRadius::ZERO.at_least(8)),
+                        .corner_radius(CornerRadius::ZERO.at_least(4)),
                 );
             } else if !*image_downloading
                 && let Some(limit) = self.app.state.prefs.max_auto_image_download_bytes

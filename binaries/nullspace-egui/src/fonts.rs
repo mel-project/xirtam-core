@@ -89,31 +89,8 @@ pub fn load_fonts(mut fonts: FontDefinitions) -> FontDefinitions {
     let mut fontdb = HashMap::new();
     fontdb.insert(
         "simplified_chinese",
-        vec![
-            "Heiti SC",
-            "Noto Sans CJK SC", // Good coverage for Simplified Chinese
-            "Noto Sans SC",
-            "WenQuanYi Zen Hei", // INcludes both Simplified and Traditional Chinese.
-            "Noto Sans SC",
-            "Source Han Sans CN",
-        ],
+        vec!["Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans CN"],
     );
-
-    fontdb.insert("korean", vec!["Source Han Sans KR"]);
-
-    fontdb.insert(
-        "arabic_fonts",
-        vec![
-            "Noto Sans Arabic",
-            "Amiri",
-            "Lateef",
-            "Al Tarikh",
-            "Segoe UI",
-        ],
-    );
-
-    // Add more stuff here for better language support
-
     for (region, font_names) in fontdb {
         if let Some(font_data) = load_font_family(&font_names) {
             tracing::info!("Inserting font {region}");
