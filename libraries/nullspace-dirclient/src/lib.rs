@@ -1,21 +1,22 @@
 #![doc = include_str!(concat!(env!("OUT_DIR"), "/README-rustdocified.md"))]
 
+use moka::future::Cache;
 use nanorpc::{DynRpcTransport, RpcTransport};
-use sqlx::SqlitePool;
-use std::time::{Duration, Instant};
 use nullspace_crypt::{
     hash::Hash,
     signing::{Signable, Signature, SigningPublic, SigningSecret},
 };
 use nullspace_structs::directory::{
-    DirectoryClient, DirectoryHistoryIterExt, DirectoryResponse, DirectoryUpdate,
+    DirectoryAnchor, DirectoryClient, DirectoryHistoryIterExt, DirectoryResponse, DirectoryUpdate,
     DirectoryUpdateInner, PowSolution,
 };
 use nullspace_structs::{
     Blob,
     server::{ServerDescriptor, ServerName},
-    username::{UserName, UserDescriptor},
+    username::{UserDescriptor, UserName},
 };
+use sqlx::SqlitePool;
+use std::time::{Duration, Instant};
 mod header_sync;
 mod pow;
 
@@ -24,6 +25,7 @@ pub struct DirClient {
     raw: DirectoryClient<DynRpcTransport>,
     anchor_pk: SigningPublic,
     pool: SqlitePool,
+    anchor_cache: Cache<u64, DirectoryAnchor>,
 }
 
 /// Derived listing information for a directory key.
@@ -59,6 +61,7 @@ impl DirClient {
             raw: DirectoryClient::from(transport),
             anchor_pk,
             pool,
+            anchor_cache: Cache::new(1024),
         })
     }
 
@@ -262,21 +265,29 @@ impl DirClient {
             .v1_get_item(key.to_string())
             .await?
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-        let mut anchor = self
-            .raw
-            .v1_get_anchor()
-            .await?
-            .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-        anchor.verify(self.anchor_pk)?;
-        while anchor.last_header_height < response.proof_height {
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            anchor = self
-                .raw
-                .v1_get_anchor()
-                .await?
-                .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-            anchor.verify(self.anchor_pk)?;
-        }
+        let cache_key = response.proof_height;
+        let anchor = self
+            .anchor_cache
+            .try_get_with(cache_key, async {
+                let mut anchor = self
+                    .raw
+                    .v1_get_anchor()
+                    .await?
+                    .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+                anchor.verify(self.anchor_pk)?;
+                while anchor.last_header_height < cache_key {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    anchor = self
+                        .raw
+                        .v1_get_anchor()
+                        .await?
+                        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+                    anchor.verify(self.anchor_pk)?;
+                }
+                Ok(anchor)
+            })
+            .await
+            .map_err(|err: std::sync::Arc<anyhow::Error>| anyhow::anyhow!(err.to_string()))?;
         header_sync::sync_headers(&self.raw, &self.pool, &anchor).await?;
         verify_response(&self.pool, key, &anchor, &response).await?;
         Ok(response)

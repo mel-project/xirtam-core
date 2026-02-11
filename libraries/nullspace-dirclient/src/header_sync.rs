@@ -1,7 +1,10 @@
+use std::sync::LazyLock;
+
 use nanorpc::DynRpcTransport;
 use nullspace_crypt::hash::Hash;
 use nullspace_structs::directory::{DirectoryAnchor, DirectoryClient, DirectoryHeader};
 use sqlx::SqlitePool;
+use tokio::sync::Semaphore;
 use tracing::debug;
 
 const BATCH_LIMIT: u64 = 1_000;
@@ -45,6 +48,10 @@ pub async fn sync_headers(
     pool: &SqlitePool,
     anchor: &DirectoryAnchor,
 ) -> anyhow::Result<()> {
+    // use a semaphore to enforce one sync at a time to prevent futile fetches
+    static SEMAPHORE: Semaphore = Semaphore::const_new(1);
+    let _guard = SEMAPHORE.acquire().await?;
+
     let mut current = max_stored_height(pool).await?;
 
     let mut prev_hash = match current {

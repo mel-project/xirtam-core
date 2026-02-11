@@ -105,7 +105,7 @@ impl NullspaceApp {
 
         cc.egui_ctx.style_mut(|style| {
             style.spacing.item_spacing = egui::vec2(6.0, 6.0);
-            // style.spacing.window_margin = egui::Margin::same(24);
+            style.spacing.window_margin = egui::Margin::same(12);
             style.spacing.button_padding = egui::vec2(6.0, 4.0);
             style.spacing.indent = 16.0;
             // style.spacing.scroll = ScrollStyle::solid();

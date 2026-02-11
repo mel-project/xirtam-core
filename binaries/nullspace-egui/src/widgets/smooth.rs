@@ -207,7 +207,7 @@ fn make_texture(
     let resized = decoded.resize_exact(
         texel_size[0],
         texel_size[1],
-        image::imageops::FilterType::Triangle,
+        image::imageops::FilterType::Lanczos3,
     );
     let rgba = resized.to_rgba8();
 

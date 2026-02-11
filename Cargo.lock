@@ -4696,6 +4696,7 @@ dependencies = [
  "clap",
  "equix",
  "hex",
+ "moka",
  "nanorpc",
  "novasmt",
  "nullspace-crypt",

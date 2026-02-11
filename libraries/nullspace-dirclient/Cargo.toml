@@ -10,6 +10,7 @@ anyhow = "1.0.100"
 bcs = "0.1.6"
 bytes = "1.11.0"
 equix = "0.5"
+moka = { version = "0.12.12", features = ["future"] }
 nanorpc = "0.1"
 novasmt = "0.3.0-alpha.3"
 rand = "0.9"
