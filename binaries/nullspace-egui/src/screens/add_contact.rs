@@ -1,9 +1,8 @@
-use bytes::Bytes;
 use eframe::egui::{Button, Modal, Response, Spinner, TextEdit, Widget};
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
+use nullspace_client::internal::{ConvoId, OutgoingMessage};
 use poll_promise::Promise;
-use nullspace_client::internal::ConvoId;
 use nullspace_structs::username::UserName;
 
 use crate::NullspaceApp;
@@ -54,11 +53,11 @@ impl Widget for AddContact<'_> {
                         };
                         let init_msg = message_str.clone();
                         let convo_id = ConvoId::Direct { peer: username };
-                        let body = Bytes::from(init_msg);
+                        let message = OutgoingMessage::PlainText(init_msg);
                         let promise = Promise::spawn_async(async move {
                             flatten_rpc(
                                 get_rpc()
-                                    .convo_send(convo_id, "text/plain".into(), body)
+                                    .convo_send(convo_id, message)
                                     .await,
                             )
                             .map(|_| ())

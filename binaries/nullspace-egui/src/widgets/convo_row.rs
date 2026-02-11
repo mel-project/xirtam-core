@@ -72,24 +72,32 @@ impl ConvoRow<'_> {
         let timestamp = format_timestamp(self.message.received_at);
         ui.push_id(self.message.received_at, |ui| {
             ui.horizontal_top(|ui| {
-                ui.add(Avatar {
-                    sender: self.message.sender.clone(),
-                    attachment: avatar,
-                    size: 36.0,
-                });
-                ui.vertical(|ui| {
-                    ui.horizontal_top(|ui| {
-                        ui.label(
-                            RichText::new(sender_label)
-                                .color(sender_color)
-                                .family(egui::FontFamily::Name("main_bold".into())),
-                        );
-                        ui.label(RichText::new(timestamp.to_string()).color(Color32::GRAY));
+                if self.is_beginning {
+                    ui.add(Avatar {
+                        sender: self.message.sender.clone(),
+                        attachment: avatar,
+                        size: 36.0,
                     });
+                } else {
+                    ui.add_space(36.0 + ui.style().spacing.item_spacing.x);
+                }
+                ui.vertical(|ui| {
+                    if self.is_beginning {
+                        ui.horizontal_top(|ui| {
+                            ui.label(
+                                RichText::new(sender_label)
+                                    .color(sender_color)
+                                    .family(egui::FontFamily::Name("main_bold".into())),
+                            );
+                            ui.label(RichText::new(timestamp.to_string()).color(Color32::GRAY));
+                        });
+                    }
                     render_message_body(ui, self.app, self.message);
                 })
             });
-            ui.add_space(8.0);
+            if self.is_end {
+                ui.add_space(8.0);
+            }
             ui.response()
         })
         .response

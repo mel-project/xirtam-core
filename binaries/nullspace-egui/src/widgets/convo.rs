@@ -1,17 +1,13 @@
-use bytes::Bytes;
 use chrono::NaiveDate;
 use eframe::egui::{Key, Response, RichText, Widget};
 use egui::{Align, Button, Color32, Image, Label, Modal, ProgressBar, ScrollArea, Sense, TextEdit};
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
-use nullspace_client::internal::ConvoId;
-use nullspace_structs::event::EventPayload;
-use nullspace_structs::fragment::Attachment;
+use nullspace_client::internal::{ConvoId, OutgoingMessage};
 use nullspace_structs::timestamp::NanoTimestamp;
 use pollster::FutureExt;
 use smol_str::SmolStr;
 
-use crate::NullspaceApp;
 use crate::promises::flatten_rpc;
 use crate::rpc::get_rpc;
 use crate::screens::group_roster::GroupRoster;
@@ -20,10 +16,12 @@ use crate::utils::prefs::ConvoRowStyle;
 use crate::utils::speed::speed_fmt;
 use crate::widgets::avatar::Avatar;
 use crate::widgets::convo_row::ConvoRow;
+use crate::{NullspaceApp, widgets::convo::cluster::cluster_convo};
 use convo_state::ConvoState;
 use image_clip::{PasteImage, persist_paste_image, read_clipboard_image};
 use std::path::{Path, PathBuf};
 
+mod cluster;
 mod convo_state;
 mod image_clip;
 
@@ -163,6 +161,16 @@ fn render_messages(
     convo_id: &ConvoId,
     state: &mut Var<ConvoState>,
 ) {
+    let clustered = ui.use_memo(
+        || {
+            let msg = state.messages.values().cloned().collect::<Vec<_>>();
+            cluster_convo(&msg)
+        },
+        (
+            state.messages.len(),
+            state.messages.last_key_value().map(|s| s.1.received_at),
+        ),
+    );
     let style: ConvoRowStyle = app.state.prefs.convo_row_style;
     let scroll_output = ScrollArea::vertical()
         .id_salt("scroll")
@@ -170,8 +178,10 @@ fn render_messages(
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let mut last_date: Option<NaiveDate> = None;
-            for item in state.messages.values() {
-                if let Some(date) = item.received_at.and_then(NanoTimestamp::naive_date)
+            for cluster in clustered {
+                let first = cluster.first().unwrap();
+                let last = cluster.last().unwrap();
+                if let Some(date) = first.received_at.and_then(NanoTimestamp::naive_date)
                     && last_date != Some(date)
                 {
                     let label = format!("[{}]", date.format("%A, %d %b %Y"));
@@ -179,14 +189,15 @@ fn render_messages(
                     ui.add_space(4.0);
                     last_date = Some(date);
                 }
-
-                ui.add(ConvoRow {
-                    app,
-                    message: item,
-                    style,
-                    is_beginning: true,
-                    is_end: true,
-                });
+                for item in cluster.iter() {
+                    ui.add(ConvoRow {
+                        app,
+                        message: item,
+                        style,
+                        is_beginning: std::ptr::eq(item, first),
+                        is_end: std::ptr::eq(item, last),
+                    });
+                }
             }
 
             let anchor_response = ui.allocate_response(egui::vec2(1.0, 1.0), Sense::hover());
@@ -248,21 +259,11 @@ fn render_composer(
         } else if let Some(done) = app.state.upload_done.get(in_progress) {
             let upload_id = *in_progress;
             let root = done.clone();
-            let Ok(body) = serde_json::to_vec(&root) else {
-                app.state
-                    .upload_error
-                    .insert(upload_id, "failed to encode attachment".into());
-                return;
-            };
             let convo_id = convo_id.clone();
             tokio::spawn(async move {
                 let _ = flatten_rpc(
                     get_rpc()
-                        .convo_send(
-                            convo_id,
-                            SmolStr::new(Attachment::mime()),
-                            Bytes::from(body),
-                        )
+                        .convo_send(convo_id, OutgoingMessage::Attachment(root))
                         .await,
                 );
             });
@@ -338,8 +339,8 @@ fn render_composer(
     // }
     let send_now = enter_pressed;
     if send_now && !draft.trim().is_empty() {
-        let body = Bytes::from(draft.clone());
-        send_message(convo_id, body);
+        let message = draft.clone();
+        send_message(convo_id, message);
         draft.clear();
         state.pending_scroll_to_bottom = true;
     }
@@ -379,12 +380,12 @@ fn render_composer(
     }
 }
 
-fn send_message(convo_id: &ConvoId, body: Bytes) {
+fn send_message(convo_id: &ConvoId, message: String) {
     let convo_id = convo_id.clone();
     tokio::spawn(async move {
         let _ = flatten_rpc(
             get_rpc()
-                .convo_send(convo_id, "text/markdown".into(), body)
+                .convo_send(convo_id, OutgoingMessage::Markdown(message))
                 .await,
         );
     });

@@ -26,7 +26,7 @@ use tokio::sync::Mutex;
 
 use crate::attachments::{self, AttachmentStatus, store_attachment_root};
 use crate::config::Config;
-pub use crate::convo::{ConvoId, ConvoMessage, ConvoSummary, MessageContent};
+pub use crate::convo::{ConvoId, ConvoMessage, ConvoSummary, MessageContent, OutgoingMessage};
 use crate::convo::{
     GroupRoster, accept_invite, create_group, invite, load_group, parse_convo_id, queue_message,
 };
@@ -63,8 +63,7 @@ pub trait InternalProtocol {
     async fn convo_send(
         &self,
         convo_id: ConvoId,
-        mime: SmolStr,
-        body: Bytes,
+        message: OutgoingMessage,
     ) -> Result<i64, InternalRpcError>;
     async fn convo_create_group(&self, server: ServerName) -> Result<ConvoId, InternalRpcError>;
     async fn own_server(&self) -> Result<ServerName, InternalRpcError>;
@@ -339,13 +338,20 @@ impl InternalProtocol for InternalImpl {
     async fn convo_send(
         &self,
         convo_id: ConvoId,
-        mime: smol_str::SmolStr,
-        body: Bytes,
+        message: OutgoingMessage,
     ) -> Result<i64, InternalRpcError> {
         let db = self.ctx.get(DATABASE);
         let identity = Identity::load(db)
             .await
             .map_err(|_| InternalRpcError::NotReady)?;
+        let (mime, body) = match message {
+            OutgoingMessage::PlainText(text) => ("text/plain".into(), Bytes::from(text)),
+            OutgoingMessage::Markdown(text) => ("text/markdown".into(), Bytes::from(text)),
+            OutgoingMessage::Attachment(root) => (
+                SmolStr::new(Attachment::mime()),
+                Bytes::from(serde_json::to_vec(&root).map_err(internal_err)?),
+            ),
+        };
         let mut conn = db.acquire().await.map_err(internal_err)?;
         let id = queue_message(&mut conn, &convo_id, &identity.username, &mime, &body)
             .await

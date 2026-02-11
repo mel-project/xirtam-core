@@ -14,6 +14,7 @@ use crate::promises::PromiseSlot;
 struct CacheKey {
     filename: PathBuf,
     max_texel_box: [u32; 2],
+    preserve_aspect_ratio: bool,
 }
 
 static IMAGE_CACHE: LazyLock<Cache<CacheKey, eframe::egui::TextureHandle>> = LazyLock::new(|| {
@@ -71,6 +72,7 @@ impl Widget for SmoothImage<'_> {
         let cache_key = CacheKey {
             filename: self.filename.to_path_buf(),
             max_texel_box,
+            preserve_aspect_ratio: self.preserve_aspect_ratio,
         };
 
         if let Some(texture) = IMAGE_CACHE.get(&cache_key) {
@@ -78,13 +80,14 @@ impl Widget for SmoothImage<'_> {
             let (rect, response) = ui.allocate_exact_size(ui_size, self.sense);
             eframe::egui::Image::from_texture(&texture)
                 .corner_radius(self.corner_radius)
+                .texture_options(eframe::egui::TextureOptions::NEAREST)
                 .paint_at(ui, rect);
             return response;
         }
 
         let promise = ui.use_state(
             PromiseSlot::<Result<eframe::egui::TextureHandle, String>>::new,
-            (),
+            cache_key.clone(),
         );
 
         if promise.is_idle() {
@@ -92,14 +95,12 @@ impl Widget for SmoothImage<'_> {
             let id = ui.id();
             let filename = self.filename.to_path_buf();
             let cache_key = cache_key.clone();
+            let preserve_aspect_ratio = self.preserve_aspect_ratio;
             let spawned = Promise::spawn_thread("smooth_image", move || {
                 let bytes = std::fs::read(filename).map_err(|e| e.to_string())?;
                 let decoded = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
-                let texel_size = target_texel_size(
-                    max_texel_box,
-                    decoded.dimensions(),
-                    self.preserve_aspect_ratio,
-                );
+                let texel_size =
+                    target_texel_size(max_texel_box, decoded.dimensions(), preserve_aspect_ratio);
                 let texture = make_texture(&ctx, decoded, texel_size, id)?;
                 IMAGE_CACHE.insert(cache_key, texture.clone());
                 ctx.request_repaint();
@@ -204,22 +205,42 @@ fn make_texture(
     texel_size: [u32; 2],
     id: eframe::egui::Id,
 ) -> Result<eframe::egui::TextureHandle, String> {
-    let resized = decoded.resize_exact(
+    let rgba = decoded.to_rgba8();
+    let (src_w, src_h) = rgba.dimensions();
+    let mut src_image = fast_image_resize::images::Image::from_vec_u8(
+        src_w,
+        src_h,
+        rgba.into_raw(),
+        fast_image_resize::PixelType::U8x4,
+    )
+    .map_err(|e| format!("failed to prepare source image for resize: {e}"))?;
+
+    let srgb_mapper = fast_image_resize::create_srgb_mapper();
+    srgb_mapper
+        .forward_map_inplace(&mut src_image)
+        .map_err(|e| format!("failed to convert source image from sRGB to linear RGB: {e}"))?;
+
+    let mut dst_image = fast_image_resize::images::Image::new(
         texel_size[0],
         texel_size[1],
-        image::imageops::FilterType::Lanczos3,
+        fast_image_resize::PixelType::U8x4,
     );
-    let rgba = resized.to_rgba8();
+    let options = fast_image_resize::ResizeOptions::new().resize_alg(
+        fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Lanczos3),
+    );
+    let mut resizer = fast_image_resize::Resizer::new();
+    resizer
+        .resize(&src_image, &mut dst_image, Some(&options))
+        .map_err(|e| format!("failed to resize image: {e}"))?;
 
-    let mut pixels = Vec::with_capacity(texel_size[0] as usize * texel_size[1] as usize);
-    for p in rgba.pixels() {
-        pixels.push(eframe::egui::Color32::from_rgba_unmultiplied(
-            p[0], p[1], p[2], p[3],
-        ));
-    }
+    srgb_mapper
+        .backward_map_inplace(&mut dst_image)
+        .map_err(|e| format!("failed to convert resized image from linear RGB to sRGB: {e}"))?;
 
-    let color_image =
-        eframe::egui::ColorImage::new([texel_size[0] as usize, texel_size[1] as usize], pixels);
+    let color_image = eframe::egui::ColorImage::from_rgba_unmultiplied(
+        [texel_size[0] as usize, texel_size[1] as usize],
+        dst_image.buffer(),
+    );
 
     Ok(ctx.load_texture(
         format!("smooth_image_{:?}_{}x{}", id, texel_size[0], texel_size[1]),

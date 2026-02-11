@@ -1,5 +1,6 @@
 use anyctx::AnyCtx;
 use futures_concurrency::future::Race;
+use nullspace_structs::fragment::Attachment;
 use nullspace_crypt::hash::Hash;
 use nullspace_structs::group::GroupId;
 use nullspace_structs::timestamp::NanoTimestamp;
@@ -81,6 +82,14 @@ pub enum MessageContent {
     GroupInvite {
         invite_id: i64,
     },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutgoingMessage {
+    PlainText(String),
+    Markdown(String),
+    Attachment(Attachment),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -2,7 +2,7 @@ use nullspace_client::internal::ConvoMessage;
 use std::collections::BTreeMap;
 use tracing::debug;
 
-const INITIAL_LIMIT: u16 = 10;
+const INITIAL_LIMIT: u16 = 100;
 const PAGE_LIMIT: u16 = 10;
 
 #[derive(Clone, Debug, Default)]

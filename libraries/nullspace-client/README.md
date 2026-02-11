@@ -13,7 +13,7 @@ The GUI calls the internal JSON-RPC methods on a local `Client` instance:
 - `new_device_bundle(can_issue, expiry) -> NewDeviceBundle`
 - `convo_list() -> [ConvoSummary]`
 - `convo_history(convo_id, before, after, limit) -> [ConvoMessage]`
-- `convo_send(convo_id, mime, body) -> message_id`
+- `convo_send(convo_id, message) -> message_id`
 - `convo_create_group(server) -> ConvoId`
 - `group_invite(group, username) -> Result<()>`
 - `group_members(group) -> [GroupMember]`
@@ -106,7 +106,7 @@ sequenceDiagram
 
 Direct messages and group messages share a unified convo API:
 
-- `convo_send(convo_id, mime, body)` inserts into `convo_messages` with `received_at = NULL`.
+- `convo_send(convo_id, message)` inserts into `convo_messages` with `received_at = NULL`.
 - The send loops look for pending rows (`received_at = NULL`, `send_error IS NULL`) and send encrypted payloads.
 - On send failures, the client records `send_error` and sets a synthetic `received_at` to stop retries.
 - The recv loops long-poll mailboxes, decrypt, verify, and insert new rows.
@@ -119,7 +119,7 @@ sequenceDiagram
   participant DB
   participant GW as server
 
-  GUI->>Client: convo_send(ConvoId::Direct(@bob), "text/plain", "hi")
+  GUI->>Client: convo_send(ConvoId::Direct(@bob), OutgoingMessage::PlainText("hi"))
   Client->>DB: insert pending convo message
   Client-->>GUI: message_id
   Client->>GW: mailbox_send(header-encrypted message)
