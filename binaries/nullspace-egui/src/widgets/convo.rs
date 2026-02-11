@@ -229,12 +229,9 @@ fn render_composer(
 ) {
     ui.add_space(8.0);
     let mut attachment: Var<Option<i64>> = ui.use_state(|| None, convo_id.clone()).into_var();
-    let key = convo_key(convo_id);
-    let mut draft: Var<String> = ui.use_state(String::new, (key.clone(), "draft")).into_var();
-    let mut pasted_image: Var<Option<PasteImage>> = ui
-        .use_state(|| None, (key.clone(), "paste_image"))
-        .into_var();
-    let text_id = ui.make_persistent_id((key.clone(), "composer_text"));
+
+    let mut draft: Var<String> = ui.use_state(String::new, ()).into_var();
+    let mut pasted_image: Var<Option<PasteImage>> = ui.use_state(|| None, ()).into_var();
 
     // attachment part
     if let Some(in_progress) = attachment.as_ref() {
@@ -324,7 +321,6 @@ fn render_composer(
             ui.add_sized(
                 ui.available_size(),
                 TextEdit::multiline(&mut *draft)
-                    .id(text_id)
                     .desired_rows(1)
                     .hint_text("Enter a message...")
                     .desired_width(f32::INFINITY)
@@ -349,8 +345,7 @@ fn render_composer(
     }
 
     if let Some(paste) = pasted_image.clone() {
-        let modal_id = format!("paste_image_modal_{key}");
-        Modal::new(modal_id.into()).show(ui.ctx(), |ui| {
+        Modal::new(ui.next_auto_id()).show(ui.ctx(), |ui| {
             ui.heading("Send pasted image?");
             let size_kb = paste.png_bytes.len() as f32 / 1024.0;
             ui.label(format!(
