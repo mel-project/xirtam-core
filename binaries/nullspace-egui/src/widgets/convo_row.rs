@@ -29,7 +29,7 @@ impl Widget for ConvoRow<'_> {
     fn ui(self, ui: &mut eframe::egui::Ui) -> Response {
         match self.style {
             ConvoRowStyle::Text => self.text_ui(ui),
-            ConvoRowStyle::Bubbles => self.bubble_ui(ui),
+            ConvoRowStyle::Friendly => self.friendly_ui(ui),
         }
     }
 }
@@ -54,7 +54,7 @@ impl ConvoRow<'_> {
         ui.response()
     }
 
-    fn bubble_ui(self, ui: &mut eframe::egui::Ui) -> Response {
+    fn friendly_ui(self, ui: &mut eframe::egui::Ui) -> Response {
         let sender_label = self
             .app
             .state

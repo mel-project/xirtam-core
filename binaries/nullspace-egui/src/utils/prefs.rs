@@ -15,14 +15,14 @@ pub const IMAGE_AUTO_DOWNLOAD_OPTIONS: &[(Option<u64>, &str)] = &[
 #[serde(rename_all = "snake_case")]
 pub enum ConvoRowStyle {
     Text,
-    Bubbles,
+    Friendly,
 }
 
 impl ConvoRowStyle {
     pub fn label(self) -> &'static str {
         match self {
             Self::Text => "Text",
-            Self::Bubbles => "Bubbles",
+            Self::Friendly => "Friendly",
         }
     }
 }
@@ -40,7 +40,7 @@ impl Default for PrefData {
         Self {
             zoom_percent: 100,
             max_auto_image_download_bytes: Some(10 * MB),
-            convo_row_style: ConvoRowStyle::Text,
+            convo_row_style: ConvoRowStyle::Friendly,
         }
     }
 }

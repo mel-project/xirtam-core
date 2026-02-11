@@ -65,8 +65,8 @@ impl Widget for Preferences<'_> {
                                     );
                                     ui.selectable_value(
                                         &mut self.app.state.prefs.convo_row_style,
-                                        ConvoRowStyle::Bubbles,
-                                        ConvoRowStyle::Bubbles.label(),
+                                        ConvoRowStyle::Friendly,
+                                        ConvoRowStyle::Friendly.label(),
                                     );
                                 });
                             ui.end_row();
