@@ -45,7 +45,6 @@ pub async fn show_notification(
                     *max_notified = message.received_at.unwrap_or_default().0;
                     let body = match &message.body {
                         MessageContent::PlainText(text) => text.clone(),
-                        MessageContent::Markdown(text) => text.clone(),
                         MessageContent::Attachment { .. } => "Attachment".to_string(),
                         MessageContent::GroupInvite { .. } => "Group invite".to_string(),
                     };

@@ -1,5 +1,6 @@
 use chrono::NaiveDate;
 use eframe::egui::{Key, Response, RichText, Widget};
+use egui::style::ScrollAnimation;
 use egui::{Align, Button, Color32, Image, Label, Modal, ProgressBar, ScrollArea, Sense, TextEdit};
 use egui_hooks::UseHookExt;
 use egui_hooks::hook::state::Var;
@@ -42,7 +43,15 @@ impl Widget for Convo<'_> {
         let response = ui.push_id(&convo_id, |ui| {
             let update_count = app.state.msg_updates;
             let key = convo_id.clone();
-            let mut state: Var<ConvoState> = ui.use_state(ConvoState::default, ()).into_var();
+            let mut state: Var<ConvoState> = ui
+                .use_state(
+                    || ConvoState {
+                        pending_scroll_to_bottom: true,
+                        ..ConvoState::default()
+                    },
+                    (),
+                )
+                .into_var();
             let mut user_info_target: Option<nullspace_structs::username::UserName> = None;
             let mut show_roster = match convo_id {
                 ConvoId::Group { .. } => {
@@ -50,23 +59,17 @@ impl Widget for Convo<'_> {
                 }
                 ConvoId::Direct { .. } => None,
             };
+            let mut fetch = |before, after, limit| {
+                let result = get_rpc()
+                    .convo_history(convo_id.clone(), before, after, limit)
+                    .block_on();
+                flatten_rpc(result)
+            };
 
             if !state.initialized {
-                let mut fetch = |before, after, limit| {
-                    let result = get_rpc()
-                        .convo_history(convo_id.clone(), before, after, limit)
-                        .block_on();
-                    flatten_rpc(result)
-                };
                 state.load_initial(&mut fetch);
                 state.last_update_count_seen = update_count;
             } else if update_count > state.last_update_count_seen {
-                let mut fetch = |before, after, limit| {
-                    let result = get_rpc()
-                        .convo_history(convo_id.clone(), before, after, limit)
-                        .block_on();
-                    flatten_rpc(result)
-                };
                 state.refresh_newer(&mut fetch);
                 state.last_update_count_seen = update_count;
             }
@@ -171,12 +174,23 @@ fn render_messages(
             state.messages.last_key_value().map(|s| s.1.received_at),
         ),
     );
+
     let style: ConvoRowStyle = app.state.prefs.convo_row_style;
-    let scroll_output = ScrollArea::vertical()
+    ScrollArea::vertical()
         .id_salt("scroll")
         .stick_to_bottom(true)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
+            if ui.link("Load more...").clicked() {
+                let convo_id = convo_id.clone();
+                let mut fetch = move |before, after, limit| {
+                    let result = get_rpc()
+                        .convo_history(convo_id.clone(), before, after, limit)
+                        .block_on();
+                    flatten_rpc(result)
+                };
+                state.load_older(&mut fetch);
+            }
             let mut last_date: Option<NaiveDate> = None;
             for cluster in clustered {
                 let first = cluster.first().unwrap();
@@ -190,34 +204,25 @@ fn render_messages(
                     last_date = Some(date);
                 }
                 for item in cluster.iter() {
-                    ui.add(ConvoRow {
-                        app,
-                        message: item,
-                        style,
-                        is_beginning: std::ptr::eq(item, first),
-                        is_end: std::ptr::eq(item, last),
+                    ui.push_id(item.id, |ui| {
+                        ui.add(ConvoRow {
+                            app,
+                            message: item,
+                            style,
+                            is_beginning: std::ptr::eq(item, first),
+                            is_end: std::ptr::eq(item, last),
+                        })
                     });
                 }
             }
 
             let anchor_response = ui.allocate_response(egui::vec2(1.0, 1.0), Sense::hover());
             if state.pending_scroll_to_bottom {
-                anchor_response.scroll_to_me(Some(Align::BOTTOM));
+                anchor_response
+                    .scroll_to_me_animation(Some(Align::BOTTOM), ScrollAnimation::none());
                 state.pending_scroll_to_bottom = false;
             }
         });
-
-    let at_top = scroll_output.state.offset.y <= 2.0;
-    if at_top {
-        let convo_id = convo_id.clone();
-        let mut fetch = move |before, after, limit| {
-            let result = get_rpc()
-                .convo_history(convo_id.clone(), before, after, limit)
-                .block_on();
-            flatten_rpc(result)
-        };
-        state.load_older(&mut fetch);
-    }
 }
 
 fn start_upload(_app: &mut NullspaceApp, attachment: &mut Var<Option<i64>>, path: PathBuf) {
@@ -385,7 +390,7 @@ fn send_message(convo_id: &ConvoId, message: String) {
     tokio::spawn(async move {
         let _ = flatten_rpc(
             get_rpc()
-                .convo_send(convo_id, OutgoingMessage::Markdown(message))
+                .convo_send(convo_id, OutgoingMessage::PlainText(message))
                 .await,
         );
     });

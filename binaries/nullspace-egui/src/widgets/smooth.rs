@@ -90,7 +90,25 @@ impl Widget for SmoothImage<'_> {
             cache_key.clone(),
         );
 
-        if promise.is_idle() {
+        let texture = match promise.poll() {
+            Some(Ok(texture)) => Some(texture),
+            Some(Err(err)) => {
+                let ui_size = fallback_ui_size(self.max_size, self.preserve_aspect_ratio);
+                let (rect, response) = ui.allocate_exact_size(ui_size, self.sense);
+                paint_error(ui, rect, &err);
+                return response;
+            }
+            None => None,
+        };
+
+        let ui_size = texture
+            .as_ref()
+            .map(|t| texture_size_points(pixels_per_point, t.size()))
+            .unwrap_or_else(|| fallback_ui_size(self.max_size, self.preserve_aspect_ratio));
+        let (rect, response) = ui.allocate_exact_size(ui_size, self.sense);
+        let is_visible = ui.is_rect_visible(rect);
+
+        if texture.is_none() && promise.is_idle() && is_visible {
             let ctx = ui.ctx().clone();
             let id = ui.id();
             let filename = self.filename.to_path_buf();
@@ -109,30 +127,15 @@ impl Widget for SmoothImage<'_> {
             promise.start(spawned);
         }
 
-        let texture = match promise.poll() {
-            Some(Ok(texture)) => Some(texture),
-            Some(Err(err)) => {
-                let ui_size = fallback_ui_size(self.max_size, self.preserve_aspect_ratio);
-                let (rect, response) = ui.allocate_exact_size(ui_size, self.sense);
-                paint_error(ui, rect, &err);
-                return response;
-            }
-            None => None,
-        };
-
-        let ui_size = texture
-            .as_ref()
-            .map(|t| texture_size_points(pixels_per_point, t.size()))
-            .unwrap_or_else(|| fallback_ui_size(self.max_size, self.preserve_aspect_ratio));
-        let (rect, response) = ui.allocate_exact_size(ui_size, self.sense);
-
         if let Some(texture) = texture {
             eframe::egui::Image::from_texture(&texture)
                 .corner_radius(self.corner_radius)
                 .texture_options(eframe::egui::TextureOptions::NEAREST)
                 .paint_at(ui, rect);
         } else {
-            ui.ctx().request_repaint();
+            if is_visible {
+                ui.ctx().request_repaint();
+            }
             paint_loading(ui, rect, self.corner_radius);
         }
 

@@ -11,7 +11,6 @@ use crate::NullspaceApp;
 use crate::promises::{PromiseSlot, flatten_rpc};
 use crate::rpc::get_rpc;
 use crate::utils::color::username_color;
-use crate::utils::markdown::layout_md;
 
 pub struct Login<'a>(pub &'a mut NullspaceApp);
 
@@ -74,7 +73,7 @@ impl Widget for Login<'_> {
                 }
                 LoginStep::FinishBootstrap => {
                     let username: UserName = username_str.parse().unwrap();
-                    ui.label(layout_md(ui, "You are registering a **new user**:"));
+                    ui.label("You are registering a new user:");
                     ui.colored_label(username_color(&username), username.as_str());
 
                     ui.horizontal(|ui| {
@@ -165,11 +164,8 @@ impl Widget for Login<'_> {
                         step.set_next(LoginStep::EnterUsername);
                         return;
                     };
-                    ui.label(layout_md(ui, &format!("The user **{username_str}** exists!")));
-                    ui.label(layout_md(
-                        ui,
-                        "You need to export a **device bundle** from an existing device:",
-                    ));
+                    ui.label(format!("The user {username_str} exists!"));
+                    ui.label("You need to export a device bundle from an existing device:");
                     ui.text_edit_multiline(&mut *bundle_str);
                     ui.label(
                         RichText::new("On your other device, go to [File] > [Add device]").small(),

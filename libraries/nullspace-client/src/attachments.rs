@@ -29,10 +29,10 @@ use crate::identity::Identity;
 use crate::internal::{Event, InternalRpcError};
 use crate::server::get_server_client;
 
-const CHUNK_SIZE_BYTES: usize = 512 * 1024;
-const MAX_FANOUT: usize = 32;
+const CHUNK_SIZE_BYTES: usize = 128 * 1024;
+const MAX_FANOUT: usize = 512;
 
-const TRANSFER_CONCURRENCY: usize = 16;
+const TRANSFER_CONCURRENCY: usize = 64;
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -222,9 +222,10 @@ pub async fn attachment_download_oneshot(
         return Err(anyhow::anyhow!("save path must be absolute"));
     }
     if let Ok(metadata) = tokio::fs::metadata(&save_to).await
-        && metadata.is_file() {
-            return Ok(());
-        }
+        && metadata.is_file()
+    {
+        return Ok(());
+    }
     let parent = save_to
         .parent()
         .ok_or_else(|| anyhow::anyhow!("save path must have a parent directory"))?;
@@ -535,10 +536,11 @@ fn create_temp_path(parent: &Path, target: &Path) -> PathBuf {
 
 async fn finalize_atomic_file(temp_path: &Path, target: &Path) -> anyhow::Result<()> {
     if let Ok(metadata) = tokio::fs::metadata(target).await
-        && metadata.is_file() {
-            let _ = tokio::fs::remove_file(temp_path).await;
-            return Ok(());
-        }
+        && metadata.is_file()
+    {
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return Ok(());
+    }
     match tokio::fs::rename(temp_path, target).await {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {

@@ -12,7 +12,6 @@ use pollster::FutureExt;
 use crate::promises::flatten_rpc;
 use crate::rpc::get_rpc;
 use crate::utils::color::username_color;
-use crate::utils::markdown::layout_md_raw;
 use crate::utils::prefs::ConvoRowStyle;
 use crate::utils::speed::speed_fmt;
 use crate::utils::units::{format_filesize, unit_for_bytes};
@@ -70,37 +69,40 @@ impl ConvoRow<'_> {
             .view(&self.message.sender)
             .and_then(|details| details.avatar);
         let timestamp = format_timestamp(self.message.received_at);
-        ui.push_id(self.message.received_at, |ui| {
-            ui.horizontal_top(|ui| {
-                if self.is_beginning {
-                    ui.add(Avatar {
+
+        ui.horizontal_top(|ui| {
+            // This "trick" makes avatar and no-avatar take the same space
+            if self.is_beginning {
+                let rect = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(36.0, 36.0));
+                ui.place(
+                    rect,
+                    Avatar {
                         sender: self.message.sender.clone(),
                         attachment: avatar,
                         size: 36.0,
-                    });
-                } else {
-                    ui.add_space(36.0 + ui.style().spacing.item_spacing.x);
-                }
-                ui.vertical(|ui| {
-                    if self.is_beginning {
-                        ui.horizontal_top(|ui| {
-                            ui.label(
-                                RichText::new(sender_label)
-                                    .color(sender_color)
-                                    .family(egui::FontFamily::Name("main_bold".into())),
-                            );
-                            ui.label(RichText::new(timestamp.to_string()).color(Color32::GRAY));
-                        });
-                    }
-                    render_message_body(ui, self.app, self.message);
-                })
-            });
-            if self.is_end {
-                ui.add_space(8.0);
+                    },
+                );
             }
-            ui.response()
-        })
-        .response
+            ui.add_space(36.0 + ui.style().spacing.item_spacing.x);
+
+            ui.vertical(|ui| {
+                if self.is_beginning {
+                    ui.horizontal_top(|ui| {
+                        ui.label(
+                            RichText::new(sender_label)
+                                .color(sender_color)
+                                .family(egui::FontFamily::Name("main_bold".into())),
+                        );
+                        ui.label(RichText::new(timestamp.to_string()).color(Color32::GRAY));
+                    });
+                }
+                render_message_body(ui, self.app, self.message);
+            })
+        });
+        if self.is_end {
+            ui.add_space(8.0);
+        }
+        ui.response()
     }
 }
 
@@ -151,11 +153,6 @@ fn render_message_body(ui: &mut eframe::egui::Ui, app: &mut NullspaceApp, messag
             MessageContent::PlainText(text) => {
                 let mut job = LayoutJob::default();
                 job.append(text, 0.0, base_text_format.clone());
-                ui.label(job);
-            }
-            MessageContent::Markdown(text) => {
-                let mut job = LayoutJob::default();
-                layout_md_raw(&mut job, base_text_format.clone(), text);
                 ui.label(job);
             }
         };

@@ -346,7 +346,6 @@ impl InternalProtocol for InternalImpl {
             .map_err(|_| InternalRpcError::NotReady)?;
         let (mime, body) = match message {
             OutgoingMessage::PlainText(text) => ("text/plain".into(), Bytes::from(text)),
-            OutgoingMessage::Markdown(text) => ("text/markdown".into(), Bytes::from(text)),
             OutgoingMessage::Attachment(root) => (
                 SmolStr::new(Attachment::mime()),
                 Bytes::from(serde_json::to_vec(&root).map_err(internal_err)?),
@@ -915,9 +914,7 @@ async fn last_dm_message_summary(
 
 fn message_preview(body: &MessageContent) -> String {
     match body {
-        MessageContent::PlainText(text) | MessageContent::Markdown(text) => {
-            preview_text(text, 80)
-        }
+        MessageContent::PlainText(text) => preview_text(text, 80),
         MessageContent::Attachment { .. } => "Attachment".to_string(),
         MessageContent::GroupInvite { .. } => "Group invite".to_string(),
     }
@@ -949,7 +946,8 @@ async fn decode_message_content(
         "text/plain" => Ok(MessageContent::PlainText(
             String::from_utf8_lossy(body).to_string(),
         )),
-        "text/markdown" => Ok(MessageContent::Markdown(
+        // Keep older stored/server markdown messages readable as plain text.
+        "text/markdown" => Ok(MessageContent::PlainText(
             String::from_utf8_lossy(body).to_string(),
         )),
         mime if mime == GroupInviteMsg::mime() => Ok(MessageContent::GroupInvite {

@@ -47,16 +47,14 @@ pub fn cluster_convo(messages: &[ConvoMessage]) -> Vec<Vec<ConvoMessage>> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MessageType {
-    PlainText,
-    Markdown,
+    Text,
     Attachment,
     GroupInvite,
 }
 
 fn message_type(message: &ConvoMessage) -> MessageType {
     match &message.body {
-        MessageContent::PlainText(_) => MessageType::PlainText,
-        MessageContent::Markdown(_) => MessageType::Markdown,
+        MessageContent::PlainText(_) => MessageType::Text,
         MessageContent::Attachment { .. } => MessageType::Attachment,
         MessageContent::GroupInvite { .. } => MessageType::GroupInvite,
     }

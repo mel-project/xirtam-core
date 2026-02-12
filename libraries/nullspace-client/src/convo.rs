@@ -1,7 +1,7 @@
 use anyctx::AnyCtx;
 use futures_concurrency::future::Race;
-use nullspace_structs::fragment::Attachment;
 use nullspace_crypt::hash::Hash;
+use nullspace_structs::fragment::Attachment;
 use nullspace_structs::group::GroupId;
 use nullspace_structs::timestamp::NanoTimestamp;
 use nullspace_structs::username::UserName;
@@ -72,7 +72,6 @@ pub struct ConvoMessage {
 #[serde(rename_all = "snake_case")]
 pub enum MessageContent {
     PlainText(String),
-    Markdown(String),
     Attachment {
         id: Hash,
         size: u64,
@@ -88,7 +87,6 @@ pub enum MessageContent {
 #[serde(rename_all = "snake_case")]
 pub enum OutgoingMessage {
     PlainText(String),
-    Markdown(String),
     Attachment(Attachment),
 }
 
